@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 import type { PrismaTransaction } from "@/server/db/tx";
 import { getRequestId } from "@/server/context";
 
@@ -9,12 +10,6 @@ export type AuditInput = {
   payload?: Record<string, unknown>;
 };
 
-// Prisma's generated `InputJsonValue` cannot be named here — the `@prisma/client`
-// import is confined to `src/server/db/**` by the eslint boundary — so this local
-// JSON shape narrows `payload` (kept as a caller-friendly `Record<string,
-// unknown>` on `AuditInput`) at the `create` call.
-type Json = string | number | boolean | null | { [k: string]: Json } | Json[];
-
 export async function writeAudit(
   tx: PrismaTransaction,
   input: AuditInput,
@@ -25,8 +20,10 @@ export async function writeAudit(
       action: input.action,
       subjectType: input.subjectType,
       subjectId: input.subjectId,
-      payload: (input.payload ?? undefined) as
-        { [k: string]: Json } | undefined,
+      // `AuditInput.payload` stays a caller-friendly `Record<string, unknown>`;
+      // the write narrows it to Prisma's JSON input type. Type-only import —
+      // erased at compile, so the `@prisma/client` value boundary is untouched.
+      payload: input.payload as Prisma.InputJsonObject | undefined,
       requestId: getRequestId(),
     },
   });
