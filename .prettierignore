@@ -1,0 +1,14 @@
+# Build output / generated
+.next/
+out/
+build/
+coverage/
+playwright-report/
+test-results/
+next-env.d.ts
+pnpm-lock.yaml
+
+# Frozen design inputs — not owned by the app, do not reformat
+plans/
+prototypes/
+.superpowers/

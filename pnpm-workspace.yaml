@@ -1,0 +1,13 @@
+# pnpm 11 reads settings from this file, not package.json's "pnpm" field
+# (https://pnpm.io/settings). This is a single-package repo; there is no
+# `packages:` list.
+#
+# Dependency build scripts must each get an explicit decision or pnpm 11 fails
+# every `pnpm <script>` with ERR_PNPM_IGNORED_BUILDS:
+#   - unrs-resolver: native (napi) resolver used by eslint-config-next's
+#     TypeScript import resolver; postinstall links the prebuilt binding.
+#   - esbuild: used by vitest / tsx / vite; postinstall validates its platform
+#     binary.
+allowBuilds:
+  esbuild: true
+  unrs-resolver: true

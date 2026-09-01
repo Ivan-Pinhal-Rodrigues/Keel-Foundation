@@ -1,0 +1,20 @@
+# Normalize all text files to LF in the repository, regardless of a
+# contributor's core.autocrlf. Keeps `prettier --check` (default endOfLine: lf)
+# and diffs consistent across Windows / macOS / Linux and CI.
+* text=auto eol=lf
+
+# Binary assets — never touch line endings.
+*.ico binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.pdf binary
+
+# Generated — keep out of language stats / diffs where noisy.
+pnpm-lock.yaml linguist-generated=true
