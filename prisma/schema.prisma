@@ -21,3 +21,243 @@ datasource db {
   url       = env("DATABASE_URL")
   directUrl = env("MIGRATE_DATABASE_URL")
 }
+
+// ---------------------------------------------------------------------------
+// Enums — the complete set from specs/data-model.md, defined here in Task 4 so
+// Tasks 5 and 6 only add models, never re-touch an enum block. Values are
+// SCREAMING_SNAKE_CASE, exactly as the spec lists them.
+// ---------------------------------------------------------------------------
+
+// Identity
+enum UserKind {
+  INTERNAL
+  GUEST
+}
+
+enum Hat {
+  DEVELOPER
+  REVIEWER
+  BUSINESS_APPROVER
+  TECHNICAL_APPROVER
+}
+
+// Demand (spec 01)
+enum DemandSource {
+  CLIENT
+  INCIDENT
+  TECH_DEBT
+  COMPLIANCE
+  OPPORTUNITY
+  INTERNAL
+}
+
+enum DemandStatus {
+  SUBMITTED
+  TRIAGING
+  WORTH_ASSESSED
+  APPROVED
+  REJECTED
+  CONVERTED
+}
+
+enum WorthDecision {
+  PURSUE
+  PARK
+  DROP
+}
+
+enum Effort {
+  S
+  M
+  L
+}
+
+// Incident (spec 02)
+enum Level {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum Priority {
+  P1
+  P2
+  P3
+  P4
+}
+
+enum IncidentStatus {
+  NEW
+  ASSIGNED
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+// Change (spec 03)
+enum ChangeType {
+  NORMAL
+  STANDARD
+  EMERGENCY
+}
+
+enum ChangeStatus {
+  DRAFT
+  ASSESSING
+  APPROVAL
+  SCHEDULED
+  IMPLEMENTING
+  PIR
+  CLOSED
+  ROLLED_BACK
+}
+
+enum ValueRealized {
+  YES
+  PARTIAL
+  NO
+}
+
+enum LinkKind {
+  CAUSED_BY
+  FIXES
+}
+
+// Approvals engine (spec 04)
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum StepStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SKIPPED
+}
+
+enum DecisionKind {
+  APPROVED
+  REJECTED
+}
+
+// Support tables (spec 05, foundation)
+enum NotificationKind {
+  ASSIGNED
+  APPROVAL_NEEDED
+  STATUS_CHANGED
+  COMMENTED
+  OVERDUE
+}
+
+enum OutboxStatus {
+  PENDING
+  SENDING
+  SENT
+  FAILED
+}
+
+// ---------------------------------------------------------------------------
+// Identity and tenancy (spec 00 §2, specs/data-model.md §"Identity and tenancy")
+// ---------------------------------------------------------------------------
+
+model Client {
+  id        String        @id @default(cuid())
+  name      String
+  domain    String? // informational in v1 (no auto-join)
+  isActive  Boolean       @default(true)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  users     User[]
+  invites   GuestInvite[]
+}
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  passwordHash String // argon2id
+  kind         UserKind
+  hats         Hat[] // empty for guests
+  displayName  String
+  isActive     Boolean   @default(true) // deactivation kills sessions
+  clientId     String? // set iff kind = GUEST
+  client       Client?   @relation(fields: [clientId], references: [id])
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  sessions     Session[]
+  accounts     Account[]
+
+  @@index([clientId])
+}
+
+model Session {
+  // Auth.js database-session shape + the extra columns the revoke UI needs.
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expires      DateTime
+  createdAt    DateTime @default(now())
+  lastSeenAt   DateTime @default(now())
+  userAgent    String?
+  ip           String?
+
+  @@index([userId])
+}
+
+model Account {
+  // Auth.js `@auth/prisma-adapter` table — full adapter shape, unused in v1
+  // (no OAuth). Present so Task 12 stays config-only whichever auth path holds.
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model VerificationToken {
+  // Auth.js adapter table. Unused in v1 (no email-link provider); present for
+  // adapter completeness.
+  identifier String
+  token      String
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model GuestInvite {
+  id          String    @id @default(cuid())
+  token       String    @unique // random 32-byte url-safe, stored hashed
+  clientId    String
+  client      Client    @relation(fields: [clientId], references: [id])
+  email       String // the invitee
+  createdById String // → User (internal); no FK, mirrors ApprovalRequest.createdById
+  expiresAt   DateTime // app sets now + 7 days
+  redeemedAt  DateTime? // single-use
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([clientId])
+}
+
+// ---------------------------------------------------------------------------
+// Reference counters (specs/data-model.md §"Reference counters")
+// `ref` values (DEM-, INC-, CHG-) increment inside the creating transaction.
+// ---------------------------------------------------------------------------
+
+model Counter {
+  name  String @id
+  value Int    @default(0)
+}
