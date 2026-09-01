@@ -153,7 +153,10 @@ export function withTestDb(): () => PrismaClient {
   let schema: string | undefined;
 
   beforeAll(async () => {
-    schema = await applyMigrationsToNewSchema();
+    // Assign the name before any DDL runs: if `applyMigrationsToNewSchema`
+    // throws after `CREATE SCHEMA`, `afterAll` still knows what to drop.
+    schema = testSchemaName();
+    await applyMigrationsToNewSchema(schema);
     client = new PrismaClient({
       datasources: { db: { url: migrateUrlForSchema(schema) } },
     });
@@ -167,7 +170,7 @@ export function withTestDb(): () => PrismaClient {
       client = undefined;
       schema = undefined;
     }
-  });
+  }, 120_000);
 
   return () => {
     if (!client) {

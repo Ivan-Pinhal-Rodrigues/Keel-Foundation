@@ -82,9 +82,9 @@ const eslintConfig = [
   // client — so the app-code Prisma boundary does not apply here.
   {
     files: [
-      "src/test/**/*.{ts,tsx}",
-      "src/**/*.test.{ts,tsx}",
-      "src/**/__tests__/**/*.{ts,tsx}",
+      "src/test/**/*.{ts,tsx,js,jsx,mjs,cjs}",
+      "src/**/*.test.{ts,tsx,js,jsx,mjs,cjs}",
+      "src/**/__tests__/**/*.{ts,tsx,js,jsx,mjs,cjs}",
     ],
     rules: {
       "no-restricted-imports": "off",
