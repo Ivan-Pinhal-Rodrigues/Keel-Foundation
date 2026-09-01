@@ -52,7 +52,11 @@ and `MIGRATE_DATABASE_URL` (migration role) separately.
 
 ## 3. Auth and session
 
-### 3.1 Chosen path
+### 3.1 Chosen path (planning — **superseded, see §3.2**)
+
+> This section records what was planned. It was tried in Phase 0 and rejected on
+> evidence; §3.2 carries the decision that actually holds. Auth.js is not a
+> dependency of this build.
 
 Auth.js v5 (`next-auth@5`) + `@auth/prisma-adapter`, `session.strategy =
 "database"`, Credentials provider for email + password.
@@ -69,14 +73,68 @@ Mitigation for the credentials-does-not-persist-a-DB-session gap
 - `middleware.ts` resolves auth **only** via `adapter.getSessionAndUser(token)`.
   No JWT branch exists in the code.
 
-### 3.2 Contingency (decide by end of Phase 0 step 2)
+### 3.2 Decision: purpose-built sessions (2026-09-01)
 
-If the above is fragile, replace with a purpose-built module:
-`createSession(userId)`, `getSession(token)`, `destroySession(token)`,
-`Session` table with a hashed token. Same cookie semantics. `authorize()` and
-every downstream consumer are unaffected — they take an `Actor`, not an Auth.js
-object. **Record the decision and the reason at the top of this spec before
-Phase 1.**
+**The contingency fired. Keel does not use Auth.js.** Sessions are a
+purpose-built module — `src/server/auth/session.ts` (`createSession`,
+`getSessionAndUser`, `destroySession`, `touchSession`) plus
+`src/server/auth/credentials.ts` (`verifyCredentials`). `next-auth` and
+`@auth/prisma-adapter` are not dependencies; there is no `[...nextauth]` route.
+
+**Version tried:** `next-auth@5.0.0-beta.32` (on `@auth/core@0.41.3`) with
+`@auth/prisma-adapter@2.11.3`. `next-auth@latest` is still `4.24.15`; v5 has not
+shipped stable.
+
+**Evidence.** §3.1's configuration was built exactly as specified and driven
+through the real `[...nextauth]` handler against a migrated test schema, twice,
+with identical results both runs — a deterministic refusal, not flakiness:
+
+1. *The config is rejected outright.* `@auth/core`'s `assertConfig`
+   (`lib/utils/assert.js:114-119`) refuses `session.strategy: "database"` when
+   every provider is a Credentials provider:
+   `UnsupportedStrategy: Signing in with credentials only supported if JWT
+   strategy is enabled`. Every request to `/api/auth/*` — even `GET
+   /api/auth/csrf` — returned **HTTP 500** *"There was a problem with the server
+   configuration"*. `Session` rows created: **0**. The `authorize` callback is
+   never reached, so §3.1's "custom wrapper around the credentials callback"
+   mitigation has nothing to wrap.
+2. *Defeating the assertion does not help.* Adding a second (dummy OAuth)
+   provider makes `assertConfig` pass, and the credentials sign-in then
+   "succeeds" — 302 to the callback URL, `authjs.session-token` cookie set. But
+   the cookie is a **JWE**, and `Session` rows went **0 → 0**. The credentials
+   branch of `@auth/core/lib/actions/callback/index.js:227-277` unconditionally
+   calls `jwt.encode()` and never calls `adapter.createSession`, whatever
+   `session.strategy` says. Reaching a DB session from there requires
+   monkey-patching Auth.js internals — the documented trigger to switch.
+
+Also encountered: `next-auth@5.0.0-beta.32`'s ESM does a bare
+`import "next/server"`, which Node's resolver rejects outside a bundler, so the
+package needs a Vitest `server.deps.inline` workaround to be testable at all.
+Secondary, but it compounds the case.
+
+**What this costs and buys.** Cost: ~120 lines of session code we now own, and
+no free OAuth provider wiring if SSO is ever wanted (it would be added
+alongside, not through Auth.js). Buys: no beta dependency on the authentication
+path, one obvious code path, and a `Session` row that provably exists — the
+integration test asserts login writes exactly one row and the cookie resolves
+back to the user.
+
+**What is unchanged.** The cookie is still named `authjs.session-token` with the
+same semantics (opaque token, httpOnly, `SameSite=Lax`, `Secure` in prod,
+`Path=/`, 30-day sliding expiry), so a later move back to Auth.js — if it ever
+learns to persist a credentials session — does not invalidate live cookies. The
+`Session`, `Account` and `VerificationToken` models keep their Auth.js-adapter
+shape; no schema change was needed in either direction. `middleware.ts` and all
+server code resolve auth **only** via `getSessionAndUser(token)`. No JWT is
+trusted for authorisation anywhere; no JWT branch exists in the codebase.
+Downstream consumers take an `Actor`, never an Auth.js object, so nothing else
+in the build moves.
+
+**Token storage.** The session token is stored as-is, not hashed. It is 32
+random bytes with no meaning outside the `Session` row, it is not a password and
+is not reused anywhere, and `sessionToken` must stay a plain unique lookup key
+for the Auth.js-shaped schema to remain compatible. Guest-invite tokens *are*
+hashed (§3.3) because they travel in a URL and reach a user's inbox.
 
 ### 3.3 Flows
 
