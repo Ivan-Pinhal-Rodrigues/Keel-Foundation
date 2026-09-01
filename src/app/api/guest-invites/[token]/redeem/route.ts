@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
+import { rateLimit } from "@/lib/api/rate-limit";
 import { redeemInviteBody } from "@/lib/api/schemas/invites";
 import { redeemInvite } from "@/server/auth/invites";
 import { SESSION_COOKIE, createSession } from "@/server/auth/session";
@@ -18,6 +19,10 @@ import { GoneError } from "@/server/policy/errors";
  * is no `mapError`, so `GoneError` and a bad body are turned into responses
  * here. Middleware's `PUBLIC` list carries the matching route.
  *
+ * Also like the login route, a per-IP `rateLimit` gate sits before
+ * `runWithContext` — a throttled request is refused (429) before it parses a
+ * body, opens a context, or touches the database, so it leaves no audit row.
+ *
  * Client metadata is read off the request and the cookie is set on the returned
  * `NextResponse` — both keep the handler a plain `Request -> Response` function
  * the route test can drive with no Next request scope.
@@ -27,9 +32,14 @@ export async function POST(
   { params }: { params: Promise<{ token: string }> },
 ): Promise<Response> {
   const { token } = await params;
+
+  const ip = clientIp(req);
+  if (!rateLimit(`invite-redeem:${ip}`, 10, 60_000)) {
+    return NextResponse.json({ error: "rate_limited" }, { status: 429 });
+  }
+
   const body: unknown = await req.json().catch(() => null);
   const userAgent = req.headers.get("user-agent") ?? undefined;
-  const ip = clientIp(req);
 
   return runWithContext(
     { requestId: randomUUID(), actorId: null },

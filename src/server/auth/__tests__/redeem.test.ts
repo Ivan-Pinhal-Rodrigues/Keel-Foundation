@@ -99,3 +99,35 @@ test("an invite whose email already has an account throws GoneError, no second u
   await expect(redeem(raw)).rejects.toBeInstanceOf(GoneError);
   expect(await db().user.count()).toBe(before);
 });
+
+/** Redeem in its own transaction — `db().$transaction` is the wrapper the route
+ *  drives `redeemInvite` through (`runInTransaction` is `$transaction` on the
+ *  app singleton), so two of these race exactly as two requests would. */
+const redeemTxn = (raw: string, name: string) =>
+  runWithContext({ requestId: `req-${randomBytes(4).toString("hex")}` }, () =>
+    db().$transaction((tx) =>
+      redeemInvite(tx, { rawToken: raw, name, password: PASSWORD }),
+    ),
+  );
+
+test("two redemptions racing one token: one wins, one GoneErrors, one user results", async () => {
+  const { invite, raw } = await seedInvite();
+
+  const results = await Promise.allSettled([
+    redeemTxn(raw, "First Arrival"),
+    redeemTxn(raw, "Second Arrival"),
+  ]);
+
+  expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+  const rejected = results.filter(
+    (r): r is PromiseRejectedResult => r.status === "rejected",
+  );
+  expect(rejected).toHaveLength(1);
+  expect(rejected[0]?.reason).toBeInstanceOf(GoneError);
+
+  expect(await db().user.count({ where: { email: invite.email } })).toBe(1);
+  const consumed = await db().guestInvite.findUniqueOrThrow({
+    where: { id: invite.id },
+  });
+  expect(consumed.redeemedAt).not.toBeNull();
+});

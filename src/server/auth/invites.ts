@@ -100,11 +100,15 @@ const isUniqueViolation = (e: unknown): boolean =>
 /**
  * Redeem a raw invite token: create the scoped `GUEST` user, mark the invite
  * used, log them in (the route sets the cookie). Emits `guest_invite.redeemed`
- * with the new user as the actor.
+ * with the new user as the actor. Runs inside the caller's transaction, so the
+ * guarded consume, the `User` create, and the audit row commit as one.
  *
- * An unknown, expired, or already-redeemed token is `GoneError` (→ 410). So is
- * an invite whose email already has an account — including the double-submit
- * race, where the second call's `User` insert hits the unique constraint.
+ * An unknown, expired, or already-redeemed token is `GoneError` (→ 410); so is
+ * an invite whose email already has an account. Two calls racing one valid
+ * token are ordered by the guarded `updateMany` that consumes the invite —
+ * exactly one matches a row, the loser gets `GoneError` — not by the
+ * `User.email` unique index. That index's violation is still caught, now only
+ * as the backstop for a same-email race across two different invites.
  */
 export async function redeemInvite(
   tx: PrismaTransaction,
@@ -123,6 +127,18 @@ export async function redeemInvite(
     select: { id: true },
   });
   if (existing) throw new GoneError("an account already exists for this email");
+
+  // Consume the invite before building the account, with a write that claims
+  // the row and asserts it claimed exactly one. Two calls racing one token both
+  // clear the reads above; this `updateMany` is the arbiter — the loser matches
+  // zero rows (its `redeemedAt IS NULL` no longer holds once the winner
+  // commits) and fails fast here, with no half-built account to roll back. The
+  // check above stays the fast path for the plainly-spent cases.
+  const consumed = await tx.guestInvite.updateMany({
+    where: { id: invite.id, redeemedAt: null },
+    data: { redeemedAt: now },
+  });
+  if (consumed.count !== 1) throw new GoneError("invite already redeemed");
 
   const passwordHash = await hashPassword(input.password);
 
@@ -145,11 +161,6 @@ export async function redeemInvite(
     }
     throw e;
   }
-
-  await tx.guestInvite.update({
-    where: { id: invite.id },
-    data: { redeemedAt: now },
-  });
 
   await writeAudit(tx, {
     actorId: user.id,

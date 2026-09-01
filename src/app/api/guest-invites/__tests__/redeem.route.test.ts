@@ -122,3 +122,27 @@ test("a malformed body → 400", async () => {
   });
   expect(invite.redeemedAt).toBeNull();
 });
+
+test("more than 10 attempts from one IP in the window → the 11th is 429", async () => {
+  // A distinct IP: the shared `post` helper has already spent this route's
+  // bucket for its own `x-forwarded-for`, and the limiter is module state that
+  // outlives a single test.
+  const ip = "203.0.113.20";
+  const token = randomBytes(32).toString("base64url");
+  const attempt = () =>
+    POST(
+      new Request(`http://localhost:3000/api/guest-invites/${token}/redeem`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-forwarded-for": ip },
+        body: JSON.stringify({ name: "X", password: "hunter2hunter2" }),
+      }),
+      { params: Promise.resolve({ token }) },
+    );
+
+  // Ten unknown-token attempts fit the window (each a 410).
+  for (let i = 0; i < 10; i++) expect((await attempt()).status).toBe(410);
+
+  const throttled = await attempt();
+  expect(throttled.status).toBe(429);
+  expect(await throttled.json()).toEqual({ error: "rate_limited" });
+});
