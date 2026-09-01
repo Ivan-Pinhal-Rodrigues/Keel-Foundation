@@ -21,6 +21,10 @@ export const SESSION_COOKIE = "authjs.session-token";
  * `NextResponse.cookies.set` does on the way out; the session token is
  * base64url so this is a no-op for it, but a cookie reader should not assume its
  * callers' encodings.
+ *
+ * A malformed percent-encoding (`decodeURIComponent` throws `URIError`) is
+ * treated as no cookie — a client-supplied value is never worth throwing over,
+ * and the caller then proceeds unauthenticated.
  */
 export function readCookie(req: Request, name: string): string | null {
   const header = req.headers.get("cookie");
@@ -29,7 +33,11 @@ export function readCookie(req: Request, name: string): string | null {
     const eq = pair.indexOf("=");
     if (eq === -1) continue;
     if (pair.slice(0, eq).trim() === name) {
-      return decodeURIComponent(pair.slice(eq + 1).trim());
+      try {
+        return decodeURIComponent(pair.slice(eq + 1).trim());
+      } catch {
+        return null;
+      }
     }
   }
   return null;

@@ -6,7 +6,7 @@ import {
   getActor,
   getActorOrNull,
 } from "@/server/auth/actor";
-import { createSession } from "@/server/auth/session";
+import { createSession, getSessionAndUser } from "@/server/auth/session";
 import { getRequestId } from "@/server/context";
 import { logger } from "@/server/log";
 import { prisma as db } from "@/server/db/client";
@@ -30,6 +30,13 @@ vi.mock("@/server/db/client", async () => {
       datasources: { db: { url: migrateUrlForSchema(schema) } },
     }),
   };
+});
+
+// Wrap `getSessionAndUser` so one test can force a failure mid-resolution and
+// assert the wrapper still returns a structured 500. Calls through by default.
+vi.mock("@/server/auth/session", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/server/auth/session")>();
+  return { ...actual, getSessionAndUser: vi.fn(actual.getSessionAndUser) };
 });
 
 let userId = "";
@@ -117,6 +124,33 @@ test("an invalid/unknown session cookie resolves to a null actor", async () => {
   });
   await handler(req({ cookie: "authjs.session-token=not-a-real-token" }));
   expect(ctxActor).toBeNull();
+});
+
+test("a cookie value with broken percent-encoding is treated as no cookie — handler still runs, actor null", async () => {
+  let ctxActor: unknown = "unset";
+  const handler = withRequest(async (_r, ctx) => {
+    ctxActor = ctx.actor;
+    return Response.json({ ok: true });
+  });
+  const res = await handler(req({ cookie: "authjs.session-token=%" }));
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ ok: true });
+  expect(ctxActor).toBeNull();
+});
+
+test("a failure during session resolution → structured 500, not an unhandled throw", async () => {
+  vi.mocked(getSessionAndUser).mockRejectedValueOnce(new Error("db blip"));
+  const spy = vi.spyOn(logger, "error").mockImplementation(() => true as never);
+
+  const handler = withRequest(async () => Response.json({ ok: true }));
+  const res = await handler(
+    req({ cookie: `authjs.session-token=${rawToken}` }),
+  );
+
+  expect(res.status).toBe(500);
+  expect(await res.json()).toEqual({ error: "internal" });
+  expect(spy).toHaveBeenCalledTimes(1);
+  spy.mockRestore();
 });
 
 test("the x-request-id request header becomes the context requestId", async () => {

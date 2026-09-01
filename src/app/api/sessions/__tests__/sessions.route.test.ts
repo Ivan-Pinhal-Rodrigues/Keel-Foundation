@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, expect, test, vi } from "vitest";
 import { DELETE } from "@/app/api/sessions/[id]/route";
 import { GET } from "@/app/api/sessions/route";
+import { sessionsResponse } from "@/lib/api/schemas/sessions";
 import { createSession } from "@/server/auth/session";
 import { prisma as db } from "@/server/db/client";
 import { applyMigrationsToNewSchema, dropSchema } from "@/test/db";
@@ -113,6 +114,22 @@ test("a TECHNICAL_APPROVER with ?all=1 sees everyone's sessions, with the owner 
   expect(sessions.length).toBe(await db.session.count());
 });
 
+test("both list responses parse against the frozen wire schema (ISO strings, admin keys kept)", async () => {
+  const tokA = await session(A);
+  const own = await (await listReq(tokA)).json();
+  expect(() => sessionsResponse.parse(own)).not.toThrow();
+
+  const tokT = await session(T);
+  const all = await (await listReq(tokT, "?all=1")).json();
+  const parsed = sessionsResponse.parse(all); // throws if createdAt etc. were Dates
+  expect(parsed.sessions.every((s) => "userId" in s)).toBe(true);
+
+  // The exact shape the review named — a JSON round-trip of the payload parses.
+  expect(() =>
+    sessionsResponse.parse(JSON.parse(JSON.stringify(all))),
+  ).not.toThrow();
+});
+
 test("a non-TECHNICAL_APPROVER passing ?all=1 still only sees their own", async () => {
   const tokA = await session(A);
   await session(B);
@@ -143,6 +160,20 @@ test("DELETE of another user's session by a non-TECHNICAL_APPROVER → 404, row 
   expect(
     await db.session.findUnique({ where: { id: bSession.id } }),
   ).not.toBeNull();
+});
+
+test("DELETE of a session id that does not exist → 404, no audit row", async () => {
+  const tokT = await session(T); // even a TECHNICAL_APPROVER
+  const before = await db.auditEvent.count({
+    where: { action: "session.revoked" },
+  });
+
+  const res = await deleteReq(tokT, "csession-does-not-exist");
+  expect(res.status).toBe(404);
+  expect(await res.json()).toEqual({ error: "not_found" });
+  expect(
+    await db.auditEvent.count({ where: { action: "session.revoked" } }),
+  ).toBe(before);
 });
 
 test("a TECHNICAL_APPROVER revoking another user's session → 200 + a session.revoked audit row", async () => {
