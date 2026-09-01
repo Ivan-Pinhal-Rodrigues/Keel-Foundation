@@ -16,6 +16,7 @@
     "seed": "dotenv -e .env -- tsx prisma/seed.ts"
   },
   "dependencies": {
+    "@node-rs/argon2": "2.2.0",
     "@prisma/client": "6.19.3",
     "next": "15.5.24",
     "react": "19.1.0",
