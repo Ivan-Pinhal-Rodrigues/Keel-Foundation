@@ -23,8 +23,13 @@ import { prisma } from "@/server/db/client";
 
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 
-/** The session cookie name. Read by the login route and by middleware. */
-export const SESSION_COOKIE = "authjs.session-token";
+/**
+ * The session cookie name. Defined in `@/lib/http/cookies` — a zero-dependency
+ * leaf so `src/middleware.ts` can import it on the Edge runtime, where this
+ * module's Prisma / `node:crypto` imports cannot go — and re-exported here
+ * because the cookie's semantics belong to this module.
+ */
+export { SESSION_COOKIE } from "@/lib/http/cookies";
 
 /** 30-day session lifetime, slid forward by `touchSession`. */
 export const SESSION_MAX_AGE_MS = THIRTY_DAYS_MS;
