@@ -1,10 +1,11 @@
 import { createHash, randomBytes } from "node:crypto";
 import { writeAudit } from "@/server/audit/write";
+import { hashPassword } from "@/server/auth/password";
 import { prisma } from "@/server/db/client";
 import type { PrismaTransaction } from "@/server/db/tx";
 import { isInternal } from "@/server/policy/actor";
 import type { Actor } from "@/server/policy/actor";
-import { ForbiddenError } from "@/server/policy/errors";
+import { ForbiddenError, GoneError } from "@/server/policy/errors";
 
 /**
  * Guest invites — an internal user invites someone from a client organisation
@@ -86,4 +87,76 @@ export async function clientForInviteToken(
     return null;
   }
   return { clientName: invite.client.name };
+}
+
+/** Postgres unique-constraint violation, without importing the Prisma error
+ *  type (the `@prisma/client` import is confined to `src/server/db/**`). */
+const isUniqueViolation = (e: unknown): boolean =>
+  typeof e === "object" &&
+  e !== null &&
+  "code" in e &&
+  (e as { code?: unknown }).code === "P2002";
+
+/**
+ * Redeem a raw invite token: create the scoped `GUEST` user, mark the invite
+ * used, log them in (the route sets the cookie). Emits `guest_invite.redeemed`
+ * with the new user as the actor.
+ *
+ * An unknown, expired, or already-redeemed token is `GoneError` (→ 410). So is
+ * an invite whose email already has an account — including the double-submit
+ * race, where the second call's `User` insert hits the unique constraint.
+ */
+export async function redeemInvite(
+  tx: PrismaTransaction,
+  input: { rawToken: string; name: string; password: string },
+): Promise<{ userId: string }> {
+  const now = new Date();
+  const invite = await tx.guestInvite.findUnique({
+    where: { token: sha256(input.rawToken) },
+  });
+  if (!invite || invite.redeemedAt !== null || invite.expiresAt < now) {
+    throw new GoneError("invite is unknown, expired, or already redeemed");
+  }
+
+  const existing = await tx.user.findUnique({
+    where: { email: invite.email },
+    select: { id: true },
+  });
+  if (existing) throw new GoneError("an account already exists for this email");
+
+  const passwordHash = await hashPassword(input.password);
+
+  let user: { id: string };
+  try {
+    user = await tx.user.create({
+      data: {
+        email: invite.email,
+        passwordHash,
+        kind: "GUEST",
+        hats: [],
+        displayName: input.name,
+        clientId: invite.clientId,
+      },
+      select: { id: true },
+    });
+  } catch (e) {
+    if (isUniqueViolation(e)) {
+      throw new GoneError("an account already exists for this email");
+    }
+    throw e;
+  }
+
+  await tx.guestInvite.update({
+    where: { id: invite.id },
+    data: { redeemedAt: now },
+  });
+
+  await writeAudit(tx, {
+    actorId: user.id,
+    action: "guest_invite.redeemed",
+    subjectType: "GuestInvite",
+    subjectId: invite.id,
+  });
+
+  return { userId: user.id };
 }

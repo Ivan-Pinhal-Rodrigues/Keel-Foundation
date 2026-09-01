@@ -32,6 +32,18 @@ test("healthz is public → next() (200, no redirect)", () => {
   expect(res.headers.get("location")).toBeNull();
 });
 
+test("the guest-invite redeem route is public (pre-auth) → next()", () => {
+  const res = run("/api/guest-invites/some-raw-token/redeem");
+  expect(res.status).toBe(200);
+  expect(res.headers.get("location")).toBeNull();
+});
+
+test("the guest-invite create route is NOT public → 401 without a cookie", async () => {
+  const res = run("/api/guest-invites");
+  expect(res.status).toBe(401);
+  expect(await res.json()).toEqual({ error: "unauthenticated" });
+});
+
 test("a request carrying a session cookie on a protected route → next()", () => {
   const res = run("/overview", "authjs.session-token=opaque-token");
   expect(res.status).toBe(200);

@@ -12,3 +12,14 @@ export const createInviteBody = z.object({
   email: z.email(),
 });
 export type CreateInviteBody = z.infer<typeof createInviteBody>;
+
+/**
+ * `POST /api/guest-invites/:token/redeem` body (Task 17). The invitee's email
+ * comes from the invite, not the request; `confirm` is a client-only check.
+ * Server is authoritative (`specs/07-guest-portal.md` §4.4).
+ */
+export const redeemInviteBody = z.object({
+  name: z.string().trim().min(1),
+  password: z.string().min(8),
+});
+export type RedeemInviteBody = z.infer<typeof redeemInviteBody>;

@@ -19,6 +19,7 @@ const PUBLIC = [
   /^\/api\/healthz$/,
   /^\/api\/readyz$/,
   /^\/api\/auth\/login$/,
+  /^\/api\/guest-invites\/[^/]+\/redeem$/,
   /^\/login$/,
   /^\/portal\/invite\//,
 ];
