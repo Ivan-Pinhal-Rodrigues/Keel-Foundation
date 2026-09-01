@@ -1,0 +1,67 @@
+-- Migration: timestamptz — convert all DateTime columns from TIMESTAMP(3) to TIMESTAMPTZ(3)
+--
+-- This migration changes `timestamp(3)` to `timestamptz(3)` on all DateTime columns
+-- across all models (Client, User, Session, Account, VerificationToken, GuestInvite,
+-- Demand, WorthAssessment, Incident, Change, PostImplementationReview, ChangeIncidentLink).
+-- Ensures all timestamps are stored with explicit UTC timezone, fixing a data-model.md
+-- convention gap (spec §Conventions: "all timestamps are timestamptz").
+--
+-- Fully reversible. Down path uses SET DATA TYPE TIMESTAMP(3) USING "col" AT TIME ZONE 'UTC'
+-- Safe: existing dev/test data is all written in UTC (no offset drift).
+-- All existing data remains intact; only the column type changes.
+
+-- Client
+ALTER TABLE "Client" ALTER COLUMN "createdAt" SET DATA TYPE TIMESTAMPTZ USING "createdAt" AT TIME ZONE 'UTC';
+ALTER TABLE "Client" ALTER COLUMN "updatedAt" SET DATA TYPE TIMESTAMPTZ USING "updatedAt" AT TIME ZONE 'UTC';
+
+-- User
+ALTER TABLE "User" ALTER COLUMN "createdAt" SET DATA TYPE TIMESTAMPTZ USING "createdAt" AT TIME ZONE 'UTC';
+ALTER TABLE "User" ALTER COLUMN "updatedAt" SET DATA TYPE TIMESTAMPTZ USING "updatedAt" AT TIME ZONE 'UTC';
+
+-- Session
+ALTER TABLE "Session" ALTER COLUMN "expires" SET DATA TYPE TIMESTAMPTZ USING "expires" AT TIME ZONE 'UTC';
+ALTER TABLE "Session" ALTER COLUMN "createdAt" SET DATA TYPE TIMESTAMPTZ USING "createdAt" AT TIME ZONE 'UTC';
+ALTER TABLE "Session" ALTER COLUMN "lastSeenAt" SET DATA TYPE TIMESTAMPTZ USING "lastSeenAt" AT TIME ZONE 'UTC';
+
+-- VerificationToken
+ALTER TABLE "VerificationToken" ALTER COLUMN "expires" SET DATA TYPE TIMESTAMPTZ USING "expires" AT TIME ZONE 'UTC';
+
+-- GuestInvite
+ALTER TABLE "GuestInvite" ALTER COLUMN "expiresAt" SET DATA TYPE TIMESTAMPTZ USING "expiresAt" AT TIME ZONE 'UTC';
+ALTER TABLE "GuestInvite" ALTER COLUMN "redeemedAt" SET DATA TYPE TIMESTAMPTZ USING "redeemedAt" AT TIME ZONE 'UTC';
+ALTER TABLE "GuestInvite" ALTER COLUMN "createdAt" SET DATA TYPE TIMESTAMPTZ USING "createdAt" AT TIME ZONE 'UTC';
+ALTER TABLE "GuestInvite" ALTER COLUMN "updatedAt" SET DATA TYPE TIMESTAMPTZ USING "updatedAt" AT TIME ZONE 'UTC';
+
+-- Demand
+ALTER TABLE "Demand" ALTER COLUMN "decidedAt" SET DATA TYPE TIMESTAMPTZ USING "decidedAt" AT TIME ZONE 'UTC';
+ALTER TABLE "Demand" ALTER COLUMN "createdAt" SET DATA TYPE TIMESTAMPTZ USING "createdAt" AT TIME ZONE 'UTC';
+ALTER TABLE "Demand" ALTER COLUMN "updatedAt" SET DATA TYPE TIMESTAMPTZ USING "updatedAt" AT TIME ZONE 'UTC';
+
+-- WorthAssessment
+ALTER TABLE "WorthAssessment" ALTER COLUMN "createdAt" SET DATA TYPE TIMESTAMPTZ USING "createdAt" AT TIME ZONE 'UTC';
+ALTER TABLE "WorthAssessment" ALTER COLUMN "updatedAt" SET DATA TYPE TIMESTAMPTZ USING "updatedAt" AT TIME ZONE 'UTC';
+
+-- Incident
+ALTER TABLE "Incident" ALTER COLUMN "dueAt" SET DATA TYPE TIMESTAMPTZ USING "dueAt" AT TIME ZONE 'UTC';
+ALTER TABLE "Incident" ALTER COLUMN "overdueNotifiedAt" SET DATA TYPE TIMESTAMPTZ USING "overdueNotifiedAt" AT TIME ZONE 'UTC';
+ALTER TABLE "Incident" ALTER COLUMN "resolvedAt" SET DATA TYPE TIMESTAMPTZ USING "resolvedAt" AT TIME ZONE 'UTC';
+ALTER TABLE "Incident" ALTER COLUMN "closedAt" SET DATA TYPE TIMESTAMPTZ USING "closedAt" AT TIME ZONE 'UTC';
+ALTER TABLE "Incident" ALTER COLUMN "createdAt" SET DATA TYPE TIMESTAMPTZ USING "createdAt" AT TIME ZONE 'UTC';
+ALTER TABLE "Incident" ALTER COLUMN "updatedAt" SET DATA TYPE TIMESTAMPTZ USING "updatedAt" AT TIME ZONE 'UTC';
+
+-- Change
+ALTER TABLE "Change" ALTER COLUMN "windowStart" SET DATA TYPE TIMESTAMPTZ USING "windowStart" AT TIME ZONE 'UTC';
+ALTER TABLE "Change" ALTER COLUMN "windowEnd" SET DATA TYPE TIMESTAMPTZ USING "windowEnd" AT TIME ZONE 'UTC';
+ALTER TABLE "Change" ALTER COLUMN "implementedAt" SET DATA TYPE TIMESTAMPTZ USING "implementedAt" AT TIME ZONE 'UTC';
+ALTER TABLE "Change" ALTER COLUMN "closedAt" SET DATA TYPE TIMESTAMPTZ USING "closedAt" AT TIME ZONE 'UTC';
+ALTER TABLE "Change" ALTER COLUMN "createdAt" SET DATA TYPE TIMESTAMPTZ USING "createdAt" AT TIME ZONE 'UTC';
+ALTER TABLE "Change" ALTER COLUMN "updatedAt" SET DATA TYPE TIMESTAMPTZ USING "updatedAt" AT TIME ZONE 'UTC';
+
+-- PostImplementationReview
+ALTER TABLE "PostImplementationReview" ALTER COLUMN "reviewedAt" SET DATA TYPE TIMESTAMPTZ USING "reviewedAt" AT TIME ZONE 'UTC';
+ALTER TABLE "PostImplementationReview" ALTER COLUMN "createdAt" SET DATA TYPE TIMESTAMPTZ USING "createdAt" AT TIME ZONE 'UTC';
+ALTER TABLE "PostImplementationReview" ALTER COLUMN "updatedAt" SET DATA TYPE TIMESTAMPTZ USING "updatedAt" AT TIME ZONE 'UTC';
+
+-- ChangeIncidentLink
+ALTER TABLE "ChangeIncidentLink" ALTER COLUMN "createdAt" SET DATA TYPE TIMESTAMPTZ USING "createdAt" AT TIME ZONE 'UTC';
+ALTER TABLE "ChangeIncidentLink" ALTER COLUMN "updatedAt" SET DATA TYPE TIMESTAMPTZ USING "updatedAt" AT TIME ZONE 'UTC';
