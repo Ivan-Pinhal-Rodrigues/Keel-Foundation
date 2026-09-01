@@ -8,6 +8,13 @@
 #     TypeScript import resolver; postinstall links the prebuilt binding.
 #   - esbuild: used by vitest / tsx / vite; postinstall validates its platform
 #     binary.
+#   - @prisma/engines: postinstall downloads the query + schema engine binaries
+#     Prisma Client and Prisma Migrate cannot run without.
+#   - prisma / @prisma/client: postinstall runs `prisma generate` so the typed
+#     client is materialised after install.
 allowBuilds:
+  "@prisma/client": true
+  "@prisma/engines": true
   esbuild: true
+  prisma: true
   unrs-resolver: true

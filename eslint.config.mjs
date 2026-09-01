@@ -75,6 +75,21 @@ const eslintConfig = [
       "no-restricted-imports": "off",
     },
   },
+
+  // Test infrastructure is not app code. The integration-test harness
+  // (`src/test/db.ts`) and integration tests build their own PrismaClient
+  // instances — per-file disposable schemas, and (Task 7) a `keel_app`-scoped
+  // client — so the app-code Prisma boundary does not apply here.
+  {
+    files: [
+      "src/test/**/*.{ts,tsx}",
+      "src/**/*.test.{ts,tsx}",
+      "src/**/__tests__/**/*.{ts,tsx}",
+    ],
+    rules: {
+      "no-restricted-imports": "off",
+    },
+  },
 ];
 
 export default eslintConfig;

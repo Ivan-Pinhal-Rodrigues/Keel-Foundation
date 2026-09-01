@@ -1,0 +1,23 @@
+// Keel — Prisma schema.
+//
+// Datasource + generator only in Task 3. Models arrive in Tasks 4-6 (identity,
+// work items, approvals + support) as sequential appends; the append-only audit
+// grant lands in Task 7.
+//
+// Role separation (see docker/postgres-init.sql):
+//   url       -> DATABASE_URL         role keel_app     — restricted runtime role
+//                                     used by PrismaClient at request time.
+//   directUrl -> MIGRATE_DATABASE_URL role keel_migrate — owns the public schema;
+//                                     used by `prisma migrate` / `db pull` /
+//                                     `studio` and by the integration-test
+//                                     harness (src/test/db.ts).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("MIGRATE_DATABASE_URL")
+}

@@ -1,8 +1,6 @@
 // Vitest global setup.
 //
-// Task 3 adds the per-file disposable Postgres schema helper here (see
-// plans/specs/00-foundation.md §6 and the SDD ledger: T3 builds src/test/db.ts
-// and wires a per-file CREATE SCHEMA / DROP SCHEMA around each test file so
-// integration tests get an isolated schema). Nothing to set up yet.
-
-export {};
+// Load .env so DATABASE_URL / MIGRATE_DATABASE_URL (and the rest) reach every
+// test file and the per-file disposable-schema harness in src/test/db.ts.
+// Next.js loads .env itself at runtime; Vitest does not, hence this.
+import "dotenv/config";
