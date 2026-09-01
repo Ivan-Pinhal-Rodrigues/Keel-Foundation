@@ -203,6 +203,14 @@ model User {
   effortScored      WorthAssessment[]          @relation("WorthEffortScorer")
   decisionsMade     WorthAssessment[]          @relation("WorthDecider")
 
+  // Approvals + support back-relations (Task 6). An approval decision and a
+  // comment are historical records → onDelete: Restrict (their author is
+  // deactivated via isActive, never hard-deleted). A notification is per-user UI
+  // ephemera with no audit value → onDelete: Cascade with the user.
+  approvalDecisions ApprovalDecision[] @relation("ApprovalDecisionActor")
+  comments          Comment[]          @relation("CommentAuthor")
+  notifications     Notification[]     @relation("NotificationRecipient")
+
   @@index([clientId])
 }
 
@@ -431,4 +439,159 @@ model ChangeIncidentLink {
 
   @@unique([changeId, incidentId, kind])
   @@index([incidentId])
+}
+
+// ---------------------------------------------------------------------------
+// Approvals engine — generic, reusable (spec 04, specs/data-model.md
+// §"Approvals engine (generic, reusable)")
+//
+// An ApprovalRequest targets any subject by (subjectType, subjectId) — "Change"
+// in v1. Steps are ordered (1-based) and role-routed; each step records one or
+// more decisions with actor / time / reason. The single-approver override is a
+// decision flag plus a typed justification (DESIGN §3.4).
+//
+// Controller rulings applied here:
+//  - Every DateTime carries @db.Timestamptz(3) (the timestamptz convention from
+//    the 20260901190000_timestamptz migration).
+//  - ApprovalRequest.createdById is a bare String with NO relation — an
+//    attribution id, matching GuestInvite.createdById (Task 4). The SoD check
+//    compares it against a decision's actorId in the service layer.
+//  - ApprovalDecision.actorId IS a real @relation to User (onDelete: Restrict) —
+//    a decision is a permanent record; its actor is deactivated, never deleted.
+//  - ApprovalStep.requestId and ApprovalDecision.stepId cascade on delete so a
+//    CANCELLED request tears its steps and decisions down cleanly.
+//  - resolvedAt on both ApprovalRequest and ApprovalStep per DESIGN §4.2
+//    (data-model.md omits them).
+// ---------------------------------------------------------------------------
+
+model ApprovalRequest {
+  id          String         @id @default(cuid())
+  subjectType String // "Change" in v1
+  subjectId   String
+  policyKey   String // e.g. change.normal, change.highRisk
+  status      ApprovalStatus @default(PENDING)
+  createdById String // → User (the submitter); bare String, drives the SoD check
+  resolvedAt  DateTime?      @db.Timestamptz(3) // set when status leaves PENDING (DESIGN §4.2)
+  createdAt   DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime       @updatedAt @db.Timestamptz(3)
+
+  steps ApprovalStep[]
+
+  @@index([subjectType, subjectId])
+  @@index([status])
+}
+
+model ApprovalStep {
+  id          String          @id @default(cuid())
+  requestId   String
+  request     ApprovalRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  order       Int // 1-based
+  requiredHat Hat // TECHNICAL_APPROVER, then BUSINESS_APPROVER for high-risk
+  status      StepStatus      @default(PENDING)
+  resolvedAt  DateTime?       @db.Timestamptz(3) // set when the step is decided (DESIGN §4.2)
+  createdAt   DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime        @updatedAt @db.Timestamptz(3)
+
+  decisions ApprovalDecision[]
+
+  @@unique([requestId, order])
+}
+
+model ApprovalDecision {
+  id                       String       @id @default(cuid())
+  stepId                   String
+  step                     ApprovalStep @relation(fields: [stepId], references: [id], onDelete: Cascade)
+  actorId                  String
+  actor                    User         @relation("ApprovalDecisionActor", fields: [actorId], references: [id], onDelete: Restrict)
+  decision                 DecisionKind
+  reason                   String // required
+  isSingleApproverOverride Boolean      @default(false) // true when actorId == request.createdById
+  overrideJustification    String? // app-enforced: required when isSingleApproverOverride
+  decidedAt                DateTime     @default(now()) @db.Timestamptz(3)
+  createdAt                DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt                DateTime     @updatedAt @db.Timestamptz(3)
+
+  @@index([stepId])
+  @@index([actorId])
+}
+
+// ---------------------------------------------------------------------------
+// Support tables (spec 05, specs/data-model.md §"Support tables")
+//
+// Controller rulings applied here:
+//  - Every DateTime carries @db.Timestamptz(3).
+//  - Comment.authorId is a real @relation to User (onDelete: Restrict) — a
+//    comment is a historical record.
+//  - AuditEvent is APPEND-ONLY: it has NEITHER createdAt NOR updatedAt. Its
+//    `at DateTime @default(now())` IS its creation time, and an append-only row
+//    is never updated — adding updatedAt would be a contradiction. This is a
+//    deliberate deviation from data-model.md §"Conventions" ("createdAt /
+//    updatedAt on every table"). Its actorId is a bare nullable String (null for
+//    system actions) with NO relation, so the row outlives any user lifecycle.
+//    The INSERT/SELECT-only runtime grant is Task 7.
+//  - Notification has createdAt ONLY (never updated except readAt). Its userId is
+//    a real @relation to User with onDelete: Cascade — pure per-user UI ephemera
+//    with no audit value; if the user goes, the feed goes.
+//  - EmailOutbox has no user relation — it addresses a bare toEmail.
+// ---------------------------------------------------------------------------
+
+model Comment {
+  id              String   @id @default(cuid())
+  subjectType     String // Demand | Incident | Change
+  subjectId       String
+  authorId        String
+  author          User     @relation("CommentAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  body            String
+  visibleToClient Boolean  @default(false) // guests may only create true and only read true
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime @updatedAt @db.Timestamptz(3)
+
+  @@index([subjectType, subjectId])
+  @@index([authorId])
+}
+
+model AuditEvent {
+  id          String   @id @default(cuid())
+  at          DateTime @default(now()) @db.Timestamptz(3) // creation time — append-only, so no createdAt/updatedAt
+  actorId     String? // null for system actions; bare String, NO relation
+  action      String // namespaced, matches the Action union
+  subjectType String
+  subjectId   String
+  payload     Json? // before/after or decision detail
+  requestId   String // correlates every event from one HTTP request
+
+  @@index([subjectType, subjectId])
+  @@index([actorId])
+  @@index([requestId])
+  @@index([at])
+}
+
+model Notification {
+  id          String           @id @default(cuid())
+  userId      String
+  user        User             @relation("NotificationRecipient", fields: [userId], references: [id], onDelete: Cascade)
+  kind        NotificationKind
+  subjectType String
+  subjectId   String
+  payload     Json // rendered title + link target
+  readAt      DateTime?        @db.Timestamptz(3)
+  createdAt   DateTime         @default(now()) @db.Timestamptz(3)
+
+  @@index([userId, readAt])
+}
+
+model EmailOutbox {
+  id            String       @id @default(cuid())
+  toEmail       String
+  template      String // template id
+  payload       Json
+  status        OutboxStatus @default(PENDING)
+  attempts      Int          @default(0)
+  lastError     String?
+  sentAt        DateTime?    @db.Timestamptz(3)
+  nextAttemptAt DateTime     @default(now()) @db.Timestamptz(3) // backoff schedule
+  createdAt     DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime     @updatedAt @db.Timestamptz(3)
+
+  @@index([status, nextAttemptAt])
 }
