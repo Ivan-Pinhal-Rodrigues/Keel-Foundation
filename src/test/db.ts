@@ -16,10 +16,11 @@ import { afterAll, beforeAll } from "vitest";
  *
  * Role: the schema is created and connected to as `keel_migrate`
  * (MIGRATE_DATABASE_URL). keel_migrate owns the schema, so the per-file client
- * can do everything. The Task 7 grant migration is `public`-scoped and does not
- * reach a `test_*` schema — exercising the restricted `keel_app` role against a
- * test schema is Task 7's own concern (it adds `appUrlForSchema` beside the
- * helpers here).
+ * can do everything. The audit-log grant migration is schema-aware
+ * (`current_schema()`), so it also runs into every `test_*` schema — but it only
+ * GRANTs/REVOKEs for `keel_app`, so the keel_migrate-owned per-file client is
+ * unaffected. `appUrlForSchema` (below) is the keel_app-scoped connection string
+ * Task 7's append-only test uses to exercise that restriction.
  *
  * Usage (Ruling B — `withTestDb()` returns a getter):
  *
@@ -69,9 +70,15 @@ function urlForSchema(baseUrl: string, schema: string): string {
 }
 
 /** The `keel_migrate` connection string pointed at a specific schema.
- *  Task 7 adds `appUrlForSchema` (the `keel_app` equivalent) beside this. */
+ *  `appUrlForSchema` below is the `keel_app` (restricted runtime role) twin. */
 export const migrateUrlForSchema = (schema: string): string =>
   urlForSchema(requireEnv("MIGRATE_DATABASE_URL"), schema);
+
+/** The `keel_app` (restricted runtime role) connection string pointed at a
+ *  specific schema. Task 7's append-only test connects with this to exercise the
+ *  audit-log grant restriction from the app's own privilege level. */
+export const appUrlForSchema = (schema: string): string =>
+  urlForSchema(requireEnv("DATABASE_URL"), schema);
 
 /** A collision-free schema name for one test file: `test_` + 12 hex chars. */
 export const testSchemaName = (): string =>
