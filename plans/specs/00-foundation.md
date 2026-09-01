@@ -130,11 +130,28 @@ trusted for authorisation anywhere; no JWT branch exists in the codebase.
 Downstream consumers take an `Actor`, never an Auth.js object, so nothing else
 in the build moves.
 
-**Token storage.** The session token is stored as-is, not hashed. It is 32
-random bytes with no meaning outside the `Session` row, it is not a password and
-is not reused anywhere, and `sessionToken` must stay a plain unique lookup key
-for the Auth.js-shaped schema to remain compatible. Guest-invite tokens *are*
-hashed (§3.3) because they travel in a URL and reach a user's inbox.
+**Token storage.** Session tokens are **hashed at rest**. `createSession`
+returns a raw 32-byte base64url token that goes in the cookie and is never
+stored; `Session.sessionToken` holds its unsigned SHA-256, and
+`getSessionAndUser` / `destroySession` / `touchSession` hash the incoming token
+before looking it up. The column stays a plain `String @unique`, so this is a
+storage change only — no migration, no schema change.
+
+This reverses an earlier draft of this section, which argued the token could be
+stored as-is because it is high-entropy and short-lived. The reason to hash it
+anyway is that a cookie value read out of the database is directly replayable:
+SQL injection, a leaked backup, an over-permissioned replica or a support export
+would each hand over live sessions. Hashing makes those disclosures yield
+digests that cannot be presented as cookies. The property it gives up — being
+able to drop `@auth/prisma-adapter` back in without invalidating live cookies —
+is moot now that the adapter is not in use.
+
+No salt: the input is 32 bytes of CSPRNG output, so there is no dictionary to
+precompute and nothing to correlate between users, and the digest has to stay a
+deterministic function for `sessionToken` to remain a unique-index equality
+lookup. (Passwords are the opposite case — low entropy, hence argon2id.)
+Guest-invite tokens are hashed too (§3.3), for the stronger reason that they
+also travel in a URL and land in a user's inbox.
 
 ### 3.3 Flows
 
