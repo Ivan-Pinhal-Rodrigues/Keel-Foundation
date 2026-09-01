@@ -1,0 +1,2039 @@
+<meta charset="utf-8">
+<title>Flightdeck</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+
+<style>
+/* ============ TOKENS ============ */
+:root{
+  --bg:#F4F5F8;
+  --surface:#FFFFFF;
+  --surface-2:#FAFAFC;
+  --raised:#FFFFFF;
+  --border:#E5E7EE;
+  --border-strong:#D3D8E3;
+  --text:#181B22;
+  --text-2:#586074;
+  --text-3:#8A92A4;
+  --accent:#2F53E6;
+  --accent-ink:#1C39AE;
+  --accent-wash:#E9EDFF;
+  --ok:#1C9B57;      --ok-wash:#E2F4EB;
+  --warn:#B0740B;    --warn-wash:#FAEFD9;
+  --crit:#CC3636;    --crit-wash:#FBE6E6;
+  --info:#4E5666;    --info-wash:#EDEFF3;
+  --dev:#7A56EE;     --dev-wash:#EEE9FE;
+  --test:#0E8B9A;    --test-wash:#DCF1F3;
+  --staging:#B0740B; --staging-wash:#FAEFD9;
+  --prod:#1C9B57;    --prod-wash:#E2F4EB;
+  --shadow-sm:0 1px 2px rgba(20,24,33,.05);
+  --shadow:0 1px 2px rgba(20,24,33,.06), 0 10px 26px -14px rgba(20,24,33,.20);
+  --shadow-lg:0 24px 60px -20px rgba(20,24,33,.34);
+  --mono:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+  --sans:'IBM Plex Sans',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  --display:'Archivo','IBM Plex Sans',system-ui,sans-serif;
+  --rail-w:236px;
+  --radius:11px;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#0D0F14;
+    --surface:#14171F;
+    --surface-2:#11141B;
+    --raised:#1A1E28;
+    --border:#252A36;
+    --border-strong:#343B4B;
+    --text:#E7E9EE;
+    --text-2:#9BA3B3;
+    --text-3:#69717F;
+    --accent:#6C8AFF;
+    --accent-ink:#A8BCFF;
+    --accent-wash:#1B2440;
+    --ok:#3FC77E;      --ok-wash:#122A1D;
+    --warn:#E0A63E;    --warn-wash:#2C2411;
+    --crit:#F16C6C;    --crit-wash:#301818;
+    --info:#8A93A4;    --info-wash:#1B1F29;
+    --dev:#9C86FF;     --dev-wash:#1E1A38;
+    --test:#3EC6D2;    --test-wash:#0E2A2D;
+    --staging:#E0A63E; --staging-wash:#2C2411;
+    --prod:#3FC77E;    --prod-wash:#122A1D;
+    --shadow-sm:0 1px 2px rgba(0,0,0,.4);
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 14px 34px -16px rgba(0,0,0,.66);
+    --shadow-lg:0 30px 70px -20px rgba(0,0,0,.72);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0D0F14;
+  --surface:#14171F;
+  --surface-2:#11141B;
+  --raised:#1A1E28;
+  --border:#252A36;
+  --border-strong:#343B4B;
+  --text:#E7E9EE;
+  --text-2:#9BA3B3;
+  --text-3:#69717F;
+  --accent:#6C8AFF;
+  --accent-ink:#A8BCFF;
+  --accent-wash:#1B2440;
+  --ok:#3FC77E;      --ok-wash:#122A1D;
+  --warn:#E0A63E;    --warn-wash:#2C2411;
+  --crit:#F16C6C;    --crit-wash:#301818;
+  --info:#8A93A4;    --info-wash:#1B1F29;
+  --dev:#9C86FF;     --dev-wash:#1E1A38;
+  --test:#3EC6D2;    --test-wash:#0E2A2D;
+  --staging:#E0A63E; --staging-wash:#2C2411;
+  --prod:#3FC77E;    --prod-wash:#122A1D;
+  --shadow-sm:0 1px 2px rgba(0,0,0,.4);
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 14px 34px -16px rgba(0,0,0,.66);
+  --shadow-lg:0 30px 70px -20px rgba(0,0,0,.72);
+}
+
+/* ============ BASE ============ */
+*{box-sizing:border-box;margin:0}
+html{-webkit-text-size-adjust:100%}
+body{
+  font-family:var(--sans);
+  background:var(--bg);
+  color:var(--text);
+  font-size:14px;
+  line-height:1.5;
+  -webkit-font-smoothing:antialiased;
+  text-rendering:optimizeLegibility;
+}
+button{font:inherit;color:inherit;cursor:pointer;background:none;border:none}
+a{color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:5px}
+::selection{background:var(--accent-wash)}
+h1,h2,h3{font-family:var(--display);font-weight:700;letter-spacing:-.01em;line-height:1.15;text-wrap:balance}
+.mono{font-family:var(--mono);font-feature-settings:"zero"1}
+.num{font-variant-numeric:tabular-nums}
+
+/* ============ APP SHELL ============ */
+.app{display:grid;grid-template-columns:var(--rail-w) 1fr;min-height:100vh}
+
+.rail{
+  background:var(--surface-2);
+  border-right:1px solid var(--border);
+  display:flex;flex-direction:column;
+  position:sticky;top:0;height:100vh;
+}
+.brand{
+  display:flex;align-items:center;gap:11px;
+  padding:20px 20px 18px;
+}
+.brand .glyph{
+  width:30px;height:30px;flex:none;
+  display:grid;place-items:center;
+  color:var(--accent);
+}
+.brand .glyph svg{width:100%;height:100%;display:block}
+.brand b{font-family:var(--display);font-weight:800;font-size:17px;letter-spacing:-.02em;display:block}
+.brand span{font-family:var(--mono);font-size:10.5px;color:var(--text-3);letter-spacing:.02em}
+
+.nav{display:flex;flex-direction:column;gap:2px;padding:6px 12px}
+.nav-label{
+  font-family:var(--mono);font-size:10px;letter-spacing:.13em;text-transform:uppercase;
+  color:var(--text-3);padding:14px 10px 6px;
+}
+.nav button{
+  display:flex;align-items:center;gap:11px;
+  width:100%;padding:8px 10px;border-radius:8px;
+  color:var(--text-2);font-weight:500;font-size:13.5px;
+  text-align:left;transition:background .12s,color .12s;
+}
+.nav button .ico{width:17px;height:17px;flex:none;opacity:.85}
+.nav button .ico svg{width:100%;height:100%;display:block;stroke:currentColor;fill:none;stroke-width:1.7}
+.nav button:hover{background:var(--border);color:var(--text)}
+.nav button[aria-current="page"]{background:var(--accent-wash);color:var(--accent-ink);font-weight:600}
+.nav button .badge{
+  margin-left:auto;font-family:var(--mono);font-size:10.5px;font-weight:600;
+  background:var(--accent);color:#fff;border-radius:999px;padding:1px 6px;min-width:18px;text-align:center;
+}
+:root[data-theme="dark"] .nav button .badge,
+:root:not([data-theme="light"]) .nav button .badge{color:#0D0F14}
+@media (prefers-color-scheme:light){:root:not([data-theme="dark"]) .nav button .badge{color:#fff}}
+
+.rail-foot{margin-top:auto;padding:16px 20px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:9px}
+.who{display:flex;align-items:center;gap:9px}
+.ava{width:26px;height:26px;border-radius:7px;flex:none;display:grid;place-items:center;font-family:var(--mono);font-weight:600;font-size:11px;color:#fff}
+.ava.k{background:linear-gradient(135deg,#2F53E6,#7A56EE)}
+.ava.d{background:linear-gradient(135deg,#0E8B9A,#1C9B57)}
+.who small{color:var(--text-3);font-family:var(--mono);font-size:10.5px}
+.who b{font-size:12.5px;font-weight:600}
+
+/* ============ STAGE ============ */
+.stage{min-width:0;display:flex;flex-direction:column}
+.topbar{
+  position:sticky;top:0;z-index:20;
+  display:flex;align-items:center;gap:16px;
+  padding:0 28px;height:56px;
+  background:color-mix(in srgb,var(--bg) 82%,transparent);
+  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+  border-bottom:1px solid var(--border);
+}
+.topbar h1{font-size:16px;font-weight:700}
+.topbar .crumb{font-family:var(--mono);font-size:11px;color:var(--text-3);letter-spacing:.02em}
+.topbar .spacer{flex:1}
+.poll{display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:11px;color:var(--text-3)}
+.poll .dot{width:7px;height:7px;border-radius:999px;background:var(--ok);box-shadow:0 0 0 0 var(--ok);animation:pulse 2.4s ease-out infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--ok) 55%,transparent)}70%{box-shadow:0 0 0 7px transparent}100%{box-shadow:0 0 0 0 transparent}}
+.iconbtn{
+  width:32px;height:32px;border-radius:8px;display:grid;place-items:center;
+  border:1px solid var(--border);color:var(--text-2);background:var(--surface);transition:.12s;
+}
+.iconbtn:hover{color:var(--text);border-color:var(--border-strong)}
+.iconbtn svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.8}
+
+.view{padding:26px 28px 60px;display:none;animation:rise .28s ease}
+.view.active{display:block}
+@keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){
+  .view,.drawer,.poll .dot{animation:none!important}
+  .drawer{transition:none!important}
+}
+
+.section-head{display:flex;align-items:baseline;gap:12px;margin:32px 0 14px;flex-wrap:wrap}
+.section-head:first-child{margin-top:4px}
+.section-head h2{font-size:15px;font-weight:700}
+.section-head .hint{font-size:12.5px;color:var(--text-3)}
+.section-head .hint b{color:var(--text-2);font-weight:600}
+
+/* ============ TILES ============ */
+.tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:13px}
+.tile{
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+  padding:15px 16px 14px;box-shadow:var(--shadow-sm);
+  display:flex;flex-direction:column;gap:3px;
+}
+.tile .lab{font-family:var(--mono);font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--text-3)}
+.tile .big{font-family:var(--display);font-size:30px;font-weight:700;letter-spacing:-.02em;line-height:1.1;white-space:nowrap}
+.tile .big small{font-size:15px;color:var(--text-3);font-weight:600}
+.tile .sub{font-size:12px;color:var(--text-2);display:flex;align-items:center;gap:5px}
+.tile .sub .tick{width:6px;height:6px;border-radius:999px;flex:none}
+
+/* ============ PANEL ============ */
+.grid-2{display:grid;grid-template-columns:1.15fr .85fr;gap:16px;align-items:start}
+.panel{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-sm);overflow:hidden}
+.panel-head{display:flex;align-items:center;gap:10px;padding:13px 16px;border-bottom:1px solid var(--border)}
+.panel-head h3{font-size:13px;font-weight:700}
+.panel-head .count{font-family:var(--mono);font-size:11px;color:var(--text-3);margin-left:auto}
+.panel-body{padding:6px}
+.panel-body.pad{padding:16px}
+
+/* ============ REVIEW QUEUE ============ */
+.rq{display:flex;flex-direction:column;padding:11px 12px;border-radius:9px;gap:8px}
+.rq+.rq{margin-top:2px}
+.rq:hover{background:var(--surface-2)}
+.rq .rq-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.rq .rq-id{font-family:var(--mono);font-size:11px;color:var(--text-3)}
+.rq .rq-title{font-weight:600;font-size:13px;flex:1;min-width:140px}
+.rq .rq-why{font-size:12px;color:var(--text-2)}
+.rq .rq-why b{color:var(--text);font-weight:600}
+.rq .rq-act{display:flex;gap:7px}
+.btn{
+  font-size:12px;font-weight:600;padding:5px 11px;border-radius:7px;
+  border:1px solid var(--border-strong);color:var(--text-2);transition:.12s;
+}
+.btn:hover{color:var(--text);border-color:var(--text-3)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+:root[data-theme="dark"] .btn.primary,:root:not([data-theme="light"]) .btn.primary{color:#0D0F14}
+@media (prefers-color-scheme:light){:root:not([data-theme="dark"]) .btn.primary{color:#fff}}
+.btn.primary:hover{background:var(--accent-ink);border-color:var(--accent-ink)}
+
+/* ============ ACTIVITY FEED ============ */
+.feed{display:flex;flex-direction:column}
+.feed li{display:grid;grid-template-columns:14px 1fr;gap:11px;padding:10px 14px;list-style:none;position:relative}
+.feed li::before{content:"";position:absolute;left:20px;top:0;bottom:0;width:1px;background:var(--border)}
+.feed li:first-child::before{top:14px}
+.feed li:last-child::before{bottom:calc(100% - 14px)}
+.feed .fdot{width:9px;height:9px;border-radius:999px;margin-top:5px;z-index:1;border:2px solid var(--surface)}
+.feed .ftext{display:block;font-size:12.5px;color:var(--text-2)}
+.feed .ftext b{color:var(--text);font-weight:600}
+.feed .fmeta{display:block;font-family:var(--mono);font-size:10.5px;color:var(--text-3);margin-top:2px}
+
+/* ============ PILLS / CHIPS ============ */
+.pill{
+  display:inline-flex;align-items:center;gap:5px;
+  font-family:var(--mono);font-size:10.5px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;
+  padding:3px 8px;border-radius:999px;white-space:nowrap;
+}
+.pill .pdot{width:6px;height:6px;border-radius:999px;background:currentColor}
+.pill.ok{background:var(--ok-wash);color:var(--ok)}
+.pill.warn{background:var(--warn-wash);color:var(--warn)}
+.pill.crit{background:var(--crit-wash);color:var(--crit)}
+.pill.info{background:var(--info-wash);color:var(--info)}
+.pill.accent{background:var(--accent-wash);color:var(--accent-ink)}
+.pill.live .pdot{animation:pulse 1.8s ease-out infinite;color:var(--warn)}
+
+.env{display:inline-flex;align-items:center;gap:4px;font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;padding:2px 6px;border-radius:5px}
+.env.dev{background:var(--dev-wash);color:var(--dev)}
+.env.test{background:var(--test-wash);color:var(--test)}
+.env.staging{background:var(--staging-wash);color:var(--staging)}
+.env.prod{background:var(--prod-wash);color:var(--prod)}
+.env-row{display:flex;gap:4px;flex-wrap:wrap}
+
+.risk{font-family:var(--mono);font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+.risk.low{color:var(--text-3)}
+.risk.medium{color:var(--warn)}
+.risk.high{color:var(--crit)}
+.risk::before{content:"\2022 "}
+
+.pri{font-family:var(--mono);font-size:11px;font-weight:600;padding:2px 6px;border-radius:5px}
+.pri.p1{background:var(--crit-wash);color:var(--crit)}
+.pri.p2{background:var(--warn-wash);color:var(--warn)}
+.pri.p3{background:var(--info-wash);color:var(--text-2)}
+.t-src{font-family:var(--mono);font-size:10.5px;color:var(--text-2);text-transform:uppercase;letter-spacing:.03em}
+.tag-em,.tag-std{font-family:var(--mono);font-size:8.5px;font-weight:700;letter-spacing:.06em;padding:1px 4px;border-radius:4px;vertical-align:1px}
+.tag-em{background:var(--crit-wash);color:var(--crit)}
+.tag-std{background:var(--info-wash);color:var(--text-3)}
+
+.rq-group-head{font-family:var(--mono);font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:var(--text-3);padding:13px 12px 5px}
+.panel-body>.rq-group-head:first-child{padding-top:8px}
+
+.decision{display:flex;align-items:flex-start;gap:9px;font-size:12.5px;color:var(--text-2);margin-top:12px;padding:10px 12px;border-radius:8px;background:var(--surface-2);border:1px solid var(--border)}
+.decision b{color:var(--text);font-weight:600}
+.decision .d-dot{width:8px;height:8px;border-radius:999px;flex:none;margin-top:4px}
+.decision.ok .d-dot{background:var(--ok)} .decision.warn .d-dot{background:var(--warn)}
+.decision.crit .d-dot{background:var(--crit)} .decision.info .d-dot{background:var(--info)}
+
+.ph-tag{font-style:normal;font-family:var(--mono);font-size:8.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--text-3);opacity:.8}
+
+/* ============ TABLE ============ */
+.table-wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-sm);overflow:hidden}
+.table-scroll{overflow-x:auto}
+.table{min-width:940px;width:100%}
+.thead,.trow{
+  display:grid;
+  grid-template-columns:80px minmax(200px,2.2fr) 118px 66px 104px 156px 92px;
+  align-items:center;gap:12px;padding:0 16px;
+}
+.trow{align-items:center}
+.thead{
+  height:38px;border-bottom:1px solid var(--border);
+  font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-3);
+}
+.trow{
+  width:100%;min-height:52px;text-align:left;border-bottom:1px solid var(--border);
+  transition:background .1s;
+}
+.trow:last-child{border-bottom:none}
+.trow:hover{background:var(--surface-2)}
+.trow .t-id{font-family:var(--mono);font-size:11.5px;color:var(--text-3)}
+.trow .t-title{font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.trow .t-proj{font-size:12px;color:var(--text-2)}
+.trow .t-type{font-family:var(--mono);font-size:11px;color:var(--text-2)}
+.trow .t-owner{font-size:12px;color:var(--text-2)}
+
+/* ============ CARD GRIDS ============ */
+.cards{display:grid;gap:14px}
+.cards.proj{grid-template-columns:repeat(auto-fill,minmax(340px,1fr))}
+.cards.status{grid-template-columns:repeat(auto-fill,minmax(288px,1fr))}
+
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-sm);padding:16px;display:flex;flex-direction:column;gap:13px}
+.card .c-head{display:flex;align-items:flex-start;gap:10px}
+.card .c-head .c-name{font-family:var(--display);font-weight:700;font-size:15px;letter-spacing:-.01em}
+.card .c-head .c-kind{font-size:11.5px;color:var(--text-3);margin-top:1px}
+.card .c-head .c-right{margin-left:auto;text-align:right;flex:none}
+
+/* pipeline track */
+.pipe{display:grid;grid-template-columns:repeat(4,1fr);gap:0;position:relative}
+.pipe .stg{display:flex;flex-direction:column;align-items:center;gap:7px;position:relative;padding-top:4px}
+.pipe .stg::before{content:"";position:absolute;top:12px;left:-50%;width:100%;height:2px;background:var(--border-strong)}
+.pipe .stg:first-child::before{display:none}
+.pipe .node{
+  width:15px;height:15px;border-radius:999px;background:var(--surface);
+  border:2px solid var(--border-strong);z-index:1;transition:.15s;
+}
+.pipe .stg.filled .node{background:currentColor;border-color:currentColor}
+.pipe .stg.focus .node{box-shadow:0 0 0 4px color-mix(in srgb,currentColor 26%,transparent)}
+.pipe .stg.dev{color:var(--dev)} .pipe .stg.test{color:var(--test)}
+.pipe .stg.staging{color:var(--staging)} .pipe .stg.prod{color:var(--prod)}
+.pipe .stg .en{font-family:var(--mono);font-size:9.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--text-3)}
+.pipe .stg.filled .en{color:var(--text-2)}
+.pipe .stg .ver{font-family:var(--mono);font-size:10.5px;color:var(--text);font-weight:500}
+.pipe .stg .ver.dim{color:var(--text-3)}
+
+.progress{height:6px;border-radius:999px;background:var(--border);overflow:hidden}
+.progress i{display:block;height:100%;border-radius:999px;background:var(--accent)}
+.c-foot{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:10.5px;color:var(--text-3);border-top:1px solid var(--border);padding-top:11px;margin-top:1px}
+.c-foot .sep{opacity:.4}
+
+.focus-note{font-size:12px;color:var(--text-2);display:flex;gap:6px;align-items:baseline}
+.focus-note .k{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-3);flex:none}
+
+/* status card */
+.statgrid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:2px;background:var(--border);border-radius:8px;overflow:hidden}
+.statgrid div{background:var(--surface);padding:8px 10px}
+.statgrid .sv{font-family:var(--mono);font-size:13px;font-weight:600;font-variant-numeric:tabular-nums}
+.statgrid .sl{font-family:var(--mono);font-size:9px;text-transform:uppercase;letter-spacing:.07em;color:var(--text-3);margin-top:1px}
+.spark{width:100%;height:34px;display:block;overflow:visible}
+.endpoint{font-family:var(--mono);font-size:11px;color:var(--text-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* ============ INCIDENT LIST ============ */
+.inc-list{display:flex;flex-direction:column;gap:11px}
+.inc{
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+  box-shadow:var(--shadow-sm);padding:14px 16px 14px 15px;
+  display:grid;grid-template-columns:1fr;gap:8px;position:relative;overflow:hidden;text-align:left;width:100%;
+  transition:background .1s;
+}
+.inc::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--info)}
+.inc.sev1::before,.inc.sev2::before{background:var(--crit)}
+.inc.sev3::before{background:var(--warn)}
+.inc:hover{background:var(--surface-2)}
+.inc .i-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.inc .i-id{font-family:var(--mono);font-size:11px;color:var(--text-3);margin-left:auto}
+.inc .i-title{font-weight:600;font-size:14px}
+.inc .i-impact{font-size:12.5px;color:var(--text-2)}
+.inc .i-meta{display:flex;gap:8px;flex-wrap:wrap;font-family:var(--mono);font-size:10.5px;color:var(--text-3)}
+.inc .i-meta .sep{opacity:.4}
+.sev-tag{font-family:var(--mono);font-size:10.5px;font-weight:700;letter-spacing:.05em;padding:3px 7px;border-radius:5px}
+.sev-tag.sev1,.sev-tag.sev2{background:var(--crit-wash);color:var(--crit)}
+.sev-tag.sev3{background:var(--warn-wash);color:var(--warn)}
+.sev-tag.sev4{background:var(--info-wash);color:var(--info)}
+
+/* ============ FUNNEL ============ */
+.funnel{display:flex;height:12px;border-radius:999px;overflow:hidden;gap:2px;background:transparent}
+.funnel i{display:block;transition:.2s}
+.funnel-legend{display:flex;flex-wrap:wrap;gap:12px 18px;margin-top:12px}
+.funnel-legend span{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--text-2)}
+.funnel-legend span::before{content:"";width:9px;height:9px;border-radius:3px;background:var(--c)}
+.funnel-legend b{font-family:var(--mono);color:var(--text);font-weight:600}
+
+/* env snapshot compact */
+.snap{display:flex;flex-direction:column}
+.snap-row{display:grid;grid-template-columns:130px 1fr;gap:16px;align-items:center;padding:11px 14px;border-bottom:1px solid var(--border)}
+.snap-row:last-child{border-bottom:none}
+.snap-row .sn-name{font-weight:600;font-size:12.5px}
+.snap-row .sn-name small{display:block;font-family:var(--mono);font-size:9.5px;color:var(--text-3);font-weight:400}
+
+/* ============ DRAWER ============ */
+.scrim{position:fixed;inset:0;background:rgba(10,12,18,.42);opacity:0;pointer-events:none;transition:opacity .22s;z-index:40}
+.scrim.open{opacity:1;pointer-events:auto}
+.drawer{
+  position:fixed;top:0;right:0;height:100vh;width:min(468px,92vw);
+  background:var(--surface);border-left:1px solid var(--border);box-shadow:var(--shadow-lg);
+  transform:translateX(100%);transition:transform .26s cubic-bezier(.4,0,.15,1);
+  z-index:41;display:flex;flex-direction:column;
+}
+.drawer.open{transform:none}
+.dr-head{display:flex;align-items:flex-start;gap:12px;padding:18px 20px 14px;border-bottom:1px solid var(--border)}
+.dr-head .dr-id{font-family:var(--mono);font-size:11px;color:var(--text-3)}
+.dr-head h2{font-size:16px;font-weight:700;margin-top:3px}
+.dr-close{margin-left:auto;flex:none;width:30px;height:30px;border-radius:7px;display:grid;place-items:center;color:var(--text-3);border:1px solid var(--border)}
+.dr-close:hover{color:var(--text);border-color:var(--border-strong)}
+.dr-close svg{width:15px;height:15px;stroke:currentColor;stroke-width:2;fill:none}
+.dr-body{padding:18px 20px 40px;overflow-y:auto;display:flex;flex-direction:column;gap:22px}
+.dr-pills{display:flex;gap:7px;flex-wrap:wrap}
+.dr-sec h4{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-3);margin-bottom:9px}
+.dr-sec p{font-size:13px;color:var(--text-2);line-height:1.6}
+.kv{display:grid;grid-template-columns:104px 1fr;gap:7px 12px;font-size:12.5px}
+.kv dt{font-family:var(--mono);font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-3);padding-top:1px}
+.kv dd{color:var(--text);font-weight:500}
+.checklist{display:flex;flex-direction:column;gap:7px}
+.checklist li{display:flex;align-items:flex-start;gap:9px;font-size:12.5px;list-style:none}
+.checklist .box{width:15px;height:15px;border-radius:4px;border:1.5px solid var(--border-strong);flex:none;margin-top:1px;display:grid;place-items:center}
+.checklist li.done .box{background:var(--ok);border-color:var(--ok)}
+.checklist li.done .box svg{width:9px;height:9px;stroke:#fff;stroke-width:3;fill:none}
+.checklist li.done span{color:var(--text-3);text-decoration:line-through}
+.tl{display:flex;flex-direction:column}
+.tl li{display:grid;grid-template-columns:66px 1fr;gap:12px;padding-bottom:14px;position:relative;list-style:none}
+.tl li:not(:last-child)::before{content:"";position:absolute;left:71px;top:5px;bottom:-2px;width:1px;background:var(--border)}
+.tl .tl-dot{width:8px;height:8px;border-radius:999px;background:var(--accent);position:absolute;left:67.5px;top:4px;border:2px solid var(--surface);z-index:1}
+.tl .tl-time{font-family:var(--mono);font-size:10.5px;color:var(--text-3);text-align:right;padding-top:1px}
+.tl .tl-txt{font-size:12.5px;color:var(--text-2);padding-left:16px}
+.tl .tl-txt b{color:var(--text);font-weight:600}
+.linkchip{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:11px;padding:5px 9px;border-radius:7px;border:1px solid var(--border);color:var(--text-2)}
+.linkchip:hover{border-color:var(--border-strong);color:var(--text)}
+
+/* ============ LIFECYCLE STEPPER ============ */
+.stepper{display:flex;flex-direction:column}
+.step{display:grid;grid-template-columns:22px 1fr;gap:12px;position:relative;padding-bottom:4px}
+.step-rail{display:flex;justify-content:center;position:relative}
+.step-rail::before{content:"";position:absolute;top:20px;bottom:-4px;width:2px;background:var(--border)}
+.step:last-child .step-rail::before{display:none}
+.step-node{width:20px;height:20px;border-radius:999px;border:2px solid var(--border-strong);background:var(--surface);display:grid;place-items:center;z-index:1;flex:none;margin-top:1px}
+.step-node .ck{width:11px;height:11px;stroke:#fff;stroke-width:2.4;fill:none}
+.step-node .step-cur{width:7px;height:7px;border-radius:999px;background:var(--c)}
+.step.done .step-node{background:var(--c);border-color:var(--c)}
+.step.current .step-node{border-color:var(--c);box-shadow:0 0 0 4px color-mix(in srgb,var(--c) 22%,transparent)}
+.step-node.ref-num{font-family:var(--mono);font-size:10px;font-weight:700;color:var(--c);border-color:var(--c)}
+.step-main{padding-bottom:16px;min-width:0}
+.step-toggle{display:block;width:100%;text-align:left;padding:0;position:relative}
+.step-chev{position:absolute;right:0;top:1px;color:var(--text-3);font-size:11px}
+.step-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.step-label{font-weight:600;font-size:13px}
+.step.upcoming .step-label{color:var(--text-3)}
+.step-count{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--text-3);padding-right:16px}
+.step-toggle .step-count{padding-right:14px}
+.step-count.ok{color:var(--ok)}
+.step-purpose{font-size:12px;color:var(--text-3);margin-top:2px}
+.gate{display:flex;flex-direction:column;gap:2px;margin-top:10px;list-style:none}
+.gate li{display:flex;align-items:flex-start;gap:9px;padding:5px 6px;border-radius:7px}
+.gate li.done .gate-t{color:var(--text-3)}
+.gate-box{width:16px;height:16px;border-radius:5px;border:1.5px solid var(--border-strong);flex:none;margin-top:1px;display:grid;place-items:center;background:var(--surface);transition:.12s}
+.gate-box .ck{width:9px;height:9px;stroke:#fff;stroke-width:3;fill:none}
+button.gate-box:hover{border-color:var(--accent)}
+.gate li.done .gate-box{background:var(--ok);border-color:var(--ok)}
+.gate-box.static.hollow{opacity:.5}
+.gate-t{font-size:12.5px;color:var(--text);line-height:1.45}
+.gate-hint{display:block;font-size:11px;color:var(--text-3);margin-top:1px}
+.advance-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:12px}
+.advance-hint{font-family:var(--mono);font-size:10.5px;color:var(--text-3)}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.btn[disabled]:hover{border-color:var(--border-strong);color:var(--text-2)}
+
+/* ============ CHANGE TABLE STAGE PIPS ============ */
+.t-stage{display:flex;flex-direction:column;gap:5px;align-items:flex-start}
+.pips{display:flex;gap:3px}
+.pip{width:5px;height:5px;border-radius:999px;background:var(--border-strong)}
+.pip.past{background:var(--c)}
+.pip.now{background:var(--c);box-shadow:0 0 0 2px color-mix(in srgb,var(--c) 32%,transparent)}
+.pip.parked{background:var(--info)}
+
+/* ============ KANBAN ============ */
+.board-tabs{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:16px}
+.board-tab{font-size:12.5px;font-weight:600;padding:6px 12px;border-radius:8px;border:1px solid var(--border);color:var(--text-2);transition:.12s;display:flex;align-items:center;gap:7px}
+.board-tab:hover{border-color:var(--border-strong);color:var(--text)}
+.board-tab[aria-selected="true"]{background:var(--accent-wash);border-color:transparent;color:var(--accent-ink)}
+.board-tab .tct{font-family:var(--mono);font-size:10px;background:var(--surface-2);border-radius:999px;padding:0 5px;color:var(--text-3)}
+.board-tab[aria-selected="true"] .tct{background:var(--surface);color:var(--accent-ink)}
+
+.board{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;align-items:start}
+.board.mini{gap:9px}
+.col{background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius);display:flex;flex-direction:column;min-height:120px}
+.col.dragover{border-color:var(--accent);background:var(--accent-wash)}
+.col-head{display:flex;align-items:center;gap:7px;padding:11px 12px 9px;border-bottom:1px solid var(--border)}
+.col-head h4{font-size:12px;font-weight:700;letter-spacing:.01em}
+.col-head .cn{font-family:var(--mono);font-size:10.5px;color:var(--text-3)}
+.col-head .col-add{margin-left:auto;width:20px;height:20px;border-radius:6px;display:grid;place-items:center;color:var(--text-3);border:1px solid var(--border);font-size:13px;line-height:1}
+.col-head .col-add:hover{color:var(--text);border-color:var(--border-strong)}
+.col-body{display:flex;flex-direction:column;gap:8px;padding:10px}
+.col-body:empty::after{content:"Drop here";display:block;text-align:center;font-size:11px;color:var(--text-3);padding:14px 0;opacity:.6}
+
+.kcard{background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:10px 11px;box-shadow:var(--shadow-sm);cursor:grab;display:flex;flex-direction:column;gap:8px}
+.kcard:active{cursor:grabbing}
+.kcard.dragging{opacity:.4}
+.kcard-top{display:flex;align-items:center;gap:6px}
+.kcard .ktag{font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;padding:2px 5px;border-radius:4px}
+.ktag.feat{background:var(--accent-wash);color:var(--accent-ink)}
+.ktag.bug{background:var(--crit-wash);color:var(--crit)}
+.ktag.ops{background:var(--info-wash);color:var(--info)}
+.ktag.infra{background:var(--dev-wash);color:var(--dev)}
+.ktag.decision{background:var(--warn-wash);color:var(--warn)}
+.kcard .kmove{margin-left:auto;display:flex;gap:2px}
+.kcard .kmove button{width:18px;height:18px;border-radius:5px;display:grid;place-items:center;color:var(--text-3);font-size:11px;line-height:1;border:1px solid transparent}
+.kcard .kmove button:hover{color:var(--text);border-color:var(--border)}
+.kcard .kmove button[disabled]{opacity:.25;pointer-events:none}
+.kcard-title{font-size:12.5px;font-weight:500;line-height:1.4;color:var(--text);outline:none}
+.kcard-title[contenteditable="true"]:focus{box-shadow:0 0 0 2px var(--accent-wash);border-radius:4px}
+.kcard-foot{display:flex;align-items:center;gap:7px}
+.kcard-foot .kava{width:18px;height:18px;border-radius:5px;font-size:9px}
+.kcard-foot .klink{font-family:var(--mono);font-size:9.5px;color:var(--text-3);border:1px solid var(--border);border-radius:5px;padding:1px 5px}
+.kcard-foot .klink:hover{color:var(--text-2);border-color:var(--border-strong)}
+.kcard.done .kcard-title{color:var(--text-2)}
+
+/* ============ ATTACHMENTS ============ */
+.clip-pill{letter-spacing:0}
+.rowclip{font-size:10px;color:var(--text-3);margin-left:2px;white-space:nowrap}
+.dropzone{
+  display:flex;align-items:center;justify-content:center;gap:9px;text-align:center;
+  padding:14px 16px;border:1.5px dashed var(--border-strong);border-radius:10px;
+  color:var(--text-3);font-size:12px;cursor:pointer;transition:.14s;margin-bottom:12px;
+}
+.dropzone:hover{border-color:var(--accent);color:var(--text-2)}
+.dropzone.drag{border-color:var(--accent);background:var(--accent-wash);color:var(--accent-ink)}
+.dropzone svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.7;flex:none}
+.attach-list{display:flex;flex-direction:column;gap:8px}
+.attach{border:1px solid var(--border);border-radius:9px;background:var(--surface-2);padding:9px 10px;display:flex;flex-direction:column;gap:9px}
+.attach-row{display:grid;grid-template-columns:34px 1fr 24px;gap:11px;align-items:center}
+.attach-ico{width:34px;height:34px;border-radius:7px;display:grid;place-items:center;flex:none;background:var(--surface);border:1px solid var(--border)}
+.attach-ico svg{width:16px;height:16px;stroke:var(--c,var(--text-2));fill:none;stroke-width:1.6}
+.attach-thumb{width:34px;height:34px;border-radius:7px;object-fit:cover;flex:none;border:1px solid var(--border)}
+.attach-info{min-width:0}
+.attach-name{font-size:12.5px;font-weight:500;line-height:1.35;word-break:break-word}
+.attach-meta{font-family:var(--mono);font-size:10px;color:var(--text-3);margin-top:2px}
+.attach-del{width:24px;height:24px;border-radius:6px;display:grid;place-items:center;color:var(--text-3);border:1px solid transparent;flex:none}
+.attach-del:hover{color:var(--crit);border-color:var(--border)}
+.attach-del svg{width:12px;height:12px;stroke:currentColor;stroke-width:2;fill:none}
+.attach-media{border-radius:8px;overflow:hidden;border:1px solid var(--border)}
+.attach-media img,.attach-media video{width:100%;display:block;max-height:240px;object-fit:contain;background:#0b0d12}
+.attach-media audio{width:100%;display:block}
+
+/* ============ TOAST ============ */
+.toasts{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);z-index:60;display:flex;flex-direction:column;gap:8px;align-items:center}
+.toast{
+  background:var(--text);color:var(--bg);font-size:12.5px;font-weight:500;
+  padding:9px 15px;border-radius:9px;box-shadow:var(--shadow-lg);
+  animation:toastin .2s ease;font-family:var(--mono);
+}
+@keyframes toastin{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+
+/* ============ RESPONSIVE ============ */
+@media (max-width:1080px){
+  .grid-2{grid-template-columns:1fr}
+}
+@media (max-width:920px){
+  :root{--rail-w:0px}
+  .app{grid-template-columns:1fr}
+  .rail{
+    position:fixed;bottom:0;left:0;right:0;top:auto;height:auto;width:100%;
+    flex-direction:row;align-items:center;z-index:50;
+    border-right:none;border-top:1px solid var(--border);
+    background:color-mix(in srgb,var(--bg) 92%,transparent);
+    backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+    overflow-x:auto;
+  }
+  .brand,.nav-label,.rail-foot{display:none}
+  .nav{flex-direction:row;padding:7px 10px;gap:3px}
+  .nav button{flex-direction:column;gap:3px;font-size:10px;padding:7px 12px;white-space:nowrap;min-width:64px;align-items:center}
+  .nav button .badge{position:absolute;margin:0;top:3px;right:8px}
+  .nav button{position:relative}
+  .stage{padding-bottom:70px}
+  .tiles{grid-template-columns:repeat(2,1fr)}
+  .view{padding:20px 16px 40px}
+  .topbar{padding:0 16px}
+}
+@media (max-width:900px){
+  .board{grid-template-columns:1fr 1fr}
+}
+@media (max-width:560px){
+  .board,.board.mini{grid-template-columns:1fr}
+}
+@media (max-width:520px){
+  .tiles{grid-template-columns:1fr 1fr;gap:9px}
+  .tile .big{font-size:24px}
+  .cards.proj,.cards.status{grid-template-columns:1fr}
+  .topbar .crumb{display:none}
+}
+</style>
+
+<div class="app">
+  <aside class="rail">
+    <div class="brand">
+      <span class="glyph" aria-hidden="true">
+        <svg viewBox="0 0 30 30"><path d="M15 3 L26 9 L15 15 L4 9 Z" fill="currentColor" opacity=".95"/><path d="M4 15 L15 21 L26 15" stroke="currentColor" stroke-width="2.4" fill="none" opacity=".6"/><path d="M4 21 L15 27 L26 21" stroke="currentColor" stroke-width="2.4" fill="none" opacity=".3"/></svg>
+      </span>
+      <span>
+        <b>Flightdeck</b>
+        <span>orbit ops · self-hosted</span>
+      </span>
+    </div>
+
+    <nav class="nav" aria-label="Sections">
+      <div class="nav-label">Operate</div>
+      <button data-view="overview" aria-current="page">
+        <span class="ico"><svg viewBox="0 0 20 20"><rect x="3" y="3" width="6" height="6" rx="1.2"/><rect x="11" y="3" width="6" height="6" rx="1.2"/><rect x="3" y="11" width="6" height="6" rx="1.2"/><rect x="11" y="11" width="6" height="6" rx="1.2"/></svg></span>
+        Overview
+      </button>
+      <button data-view="changes">
+        <span class="ico"><svg viewBox="0 0 20 20"><path d="M4 7h9M4 7l3-3M4 7l3 3M16 13H7M16 13l-3-3M16 13l-3 3"/></svg></span>
+        Changes
+        <span class="badge" id="nav-chg-badge">3</span>
+      </button>
+      <button data-view="incidents">
+        <span class="ico"><svg viewBox="0 0 20 20"><path d="M10 3 L18 16 H2 Z"/><path d="M10 8v4M10 14.5v.2"/></svg></span>
+        Incidents
+        <span class="badge" id="nav-inc-badge" style="background:var(--warn)">1</span>
+      </button>
+      <button data-view="projects">
+        <span class="ico"><svg viewBox="0 0 20 20"><path d="M3 6l7-3 7 3-7 3-7-3Z"/><path d="M3 10l7 3 7-3M3 14l7 3 7-3"/></svg></span>
+        Projects
+      </button>
+      <button data-view="board">
+        <span class="ico"><svg viewBox="0 0 20 20"><rect x="3" y="3" width="4" height="14" rx="1"/><rect x="8.5" y="3" width="4" height="9" rx="1"/><rect x="14" y="3" width="4" height="11" rx="1"/></svg></span>
+        Board
+      </button>
+      <button data-view="status">
+        <span class="ico"><svg viewBox="0 0 20 20"><path d="M2 11h3l2-5 3 9 2.5-6 1.5 2h4"/></svg></span>
+        Live Status
+      </button>
+    </nav>
+
+    <div class="rail-foot">
+      <div class="who"><span class="ava k">KR</span><span><b>Kai R.</b> <small>you · technical lead</small></span></div>
+      <div class="who"><span class="ava d">DM</span><span><b>Devon M.</b> <small>process &amp; change owner</small></span></div>
+    </div>
+  </aside>
+
+  <div class="stage">
+    <header class="topbar">
+      <h1 id="view-title">Overview</h1>
+      <span class="crumb mono" id="view-crumb">flightdeck / overview</span>
+      <span class="spacer"></span>
+      <span class="poll" title="Status poller"><span class="dot"></span><span id="poll-txt">checked 2s ago</span></span>
+      <button class="iconbtn" id="theme-btn" title="Toggle theme (press T)" aria-label="Toggle theme">
+        <svg id="theme-ico" viewBox="0 0 20 20"><circle cx="10" cy="10" r="4"/><path d="M10 1v2M10 17v2M1 10h2M17 10h2M3.5 3.5l1.5 1.5M15 15l1.5 1.5M16.5 3.5L15 5M5 15l-1.5 1.5"/></svg>
+      </button>
+    </header>
+
+    <!-- ================= OVERVIEW ================= -->
+    <section class="view active" id="overview">
+      <div class="tiles" id="ov-tiles"></div>
+
+      <div class="section-head">
+        <h2>Review queue</h2>
+        <span class="hint">Every change stops here twice &mdash; once to agree it's <b>worth doing</b>, once to <b>authorise</b> it.</span>
+      </div>
+      <div class="grid-2">
+        <div class="panel">
+          <div class="panel-head"><h3>Waiting on a joint call</h3><span class="count" id="rq-count"></span></div>
+          <div class="panel-body" id="rq-list"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h3>Recent activity</h3></div>
+          <ul class="feed" id="ov-feed"></ul>
+        </div>
+      </div>
+
+      <div class="section-head"><h2>Team board</h2><span class="hint">Cross-cutting work that isn't tied to one project. Drag cards, or use the arrows.</span></div>
+      <div id="ov-board"></div>
+
+      <div class="section-head"><h2>Change lifecycle</h2><span class="hint">Demand &rarr; worth &rarr; RFC &rarr; authorise &rarr; deploy &rarr; review. Where the register sits now.</span></div>
+      <div class="panel">
+        <div class="panel-body pad">
+          <div class="funnel" id="ov-funnel"></div>
+          <div class="funnel-legend" id="ov-funnel-legend"></div>
+        </div>
+      </div>
+
+      <div class="section-head"><h2>Environment snapshot</h2><span class="hint">Deployed build per stage, all projects.</span></div>
+      <div class="panel">
+        <div class="snap" id="ov-snap"></div>
+      </div>
+    </section>
+
+    <!-- ================= CHANGES ================= -->
+    <section class="view" id="changes">
+      <div class="tiles" id="chg-tiles"></div>
+      <div class="section-head"><h2>Change register</h2><span class="hint">Click a row for the full record &mdash; demand, worth call, the gated lifecycle, rollback, test plan, PIR.</span>
+        <button class="btn" data-open="lifecycle:ref" style="margin-left:auto">Lifecycle &amp; gates</button>
+      </div>
+      <div class="table-wrap">
+        <div class="table-scroll">
+          <div class="table" role="table" aria-label="Change register">
+            <div class="thead" role="row">
+              <span>ID</span><span>Title</span><span>Project</span><span>Priority</span><span>Demand</span><span>Lifecycle</span><span>Owner</span>
+            </div>
+            <div id="chg-rows"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= INCIDENTS ================= -->
+    <section class="view" id="incidents">
+      <div class="tiles" id="inc-tiles"></div>
+      <div class="section-head"><h2>Incident log</h2><span class="hint">Newest first. Click for the timeline and linked change.</span></div>
+      <div class="inc-list" id="inc-list"></div>
+    </section>
+
+    <!-- ================= PROJECTS ================= -->
+    <section class="view" id="projects">
+      <div class="section-head" style="margin-top:4px"><h2>Projects &amp; release pipeline</h2><span class="hint">Build at each stage · what the current push is focused on.</span></div>
+      <div class="cards proj" id="proj-cards"></div>
+    </section>
+
+    <!-- ================= BOARD ================= -->
+    <section class="view" id="board">
+      <div class="section-head" style="margin-top:4px"><h2>Boards</h2><span class="hint">One board per project, plus the team board. Drag a card between columns or use its arrows.</span></div>
+      <div class="board-tabs" id="board-tabs" role="tablist"></div>
+      <div id="board-mount"></div>
+    </section>
+
+    <!-- ================= STATUS ================= -->
+    <section class="view" id="status">
+      <div class="tiles" id="st-tiles"></div>
+      <div class="section-head"><h2>Live service status</h2><span class="hint">Polled from each project's <span class="mono">/healthz</span> endpoint every few seconds.</span></div>
+      <div class="cards status" id="st-cards"></div>
+    </section>
+  </div>
+</div>
+
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer" aria-hidden="true" aria-label="Detail"></aside>
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<script>
+(() => {
+"use strict";
+
+/* ================= MOCK DATA ================= */
+const PROJECTS = [
+  { id:"aurora", name:"Aurora API", kind:"Public REST API", repo:"orbit/aurora", owner:"Kai R.",
+    pipe:{ dev:"2.15.0-rc4", test:"2.15.0-rc4", staging:"2.14.2", prod:"2.14.2" }, focus:"test",
+    progress:.58, note:"2.15 in staging QA — cursor pagination load test passed, waiting on peer review.", lastDeploy:"prod 2.14.2 · 6d ago" },
+  { id:"gateway", name:"Gateway", kind:"Auth & edge routing", repo:"orbit/gateway", owner:"Devon M.",
+    pipe:{ dev:"1.9.0", test:"1.8.3", staging:"1.8.3", prod:"1.8.3" }, focus:"dev",
+    progress:.30, note:"mTLS enforcement branch building on dev. Change scheduled for Sep 5.", lastDeploy:"prod 1.8.3 · 8d ago" },
+  { id:"ledger", name:"Ledger Service", kind:"Billing & payments", repo:"orbit/ledger", owner:"Kai R.",
+    pipe:{ dev:"4.2.0-rc1", test:"4.1.7", staging:"4.1.7", prod:"4.1.6" }, focus:"prod",
+    progress:.82, note:"4.1.7 rolling to prod right now — canary at 25%, next gate 50%.", lastDeploy:"prod canary in progress" },
+  { id:"courier", name:"Courier", kind:"Email & notifications", repo:"orbit/courier", owner:"Devon M.",
+    pipe:{ dev:"3.4.1", test:"3.4.1", staging:"3.4.1", prod:"3.4.1" }, focus:null,
+    progress:1, note:"Steady. Postmark migration shipped last week, no open work.", lastDeploy:"prod 3.4.1 · 5d ago" },
+  { id:"pulse", name:"Pulse", kind:"This ops console", repo:"orbit/pulse", owner:"Kai R.",
+    pipe:{ dev:"0.7.0", test:"0.6.2", staging:"0.6.2", prod:"0.6.0" }, focus:"dev",
+    progress:.45, note:"0.7 adds the review queue + activity feed. Dogfooding on dev.", lastDeploy:"prod 0.6.0 · 11d ago" },
+];
+const P = Object.fromEntries(PROJECTS.map(p => [p.id, p.name]));
+
+const CHANGES = [
+  { id:"CHG-0053", title:"Self-serve API key management for customers", project:"aurora", type:"Normal", risk:"Medium", priority:"P3",
+    state:"Demand", envs:[], owner:"—", reviewer:"—", created:"Aug 30", window:"—",
+    demand:{ source:"Customer", raisedBy:"Devon M.", raised:"Aug 30",
+      problem:"Three customers this month emailed us to rotate their API keys by hand. There's no way for them to do it themselves, and every request is a manual vault operation for us." },
+    worth:null,
+    timeline:[ {time:"Aug 30",txt:"Raised by <b>Devon M.</b> from the support inbox — 3rd request this month"} ] },
+
+  { id:"CHG-0044", title:"Read replica for Ledger reporting queries", project:"ledger", type:"Normal", risk:"Medium", priority:"P2",
+    state:"Assessing", envs:["staging","prod"], owner:"Kai R.", reviewer:"Devon M.", created:"Aug 29", window:"Not scheduled",
+    demand:{ source:"Tech debt", raisedBy:"Kai R.", raised:"Aug 29",
+      problem:"Month-end reporting scans take row locks on the Ledger primary. The August close ran ~40 min slow and came within one query of tripping the lock-timeout alarm." },
+    worth:{ value:"Close-week reporting stops contending with live writes. Removes a recurring slow close and a latent SEV2.",
+      effort:"M", costOfDelay:"Every month-end stays slow and one bad query away from an incident until this ships.",
+      decision:"Pending", decidedBy:null, decided:null },
+    queue:{ bucket:"worth", why:"Adds a standing ~€40/mo of infra. The call: provision the replica now, or spend two days on a query-tuning spike first and re-decide?", cta:"Log decision" },
+    summary:"Provision a dedicated read replica and route the reporting / month-end connection string to it.",
+    rollback:"Drop the replica, point the reporting DSN back at the primary. Immediate and safe — just restores today's load.",
+    testPlan:"Run the full close-week query set against the replica on staging; confirm replication lag stays under 5 s under a simulated close load.",
+    tasks:[ {t:"Sizing estimate",done:true},{t:"Query-tuning spike (compare)",done:false},{t:"Worth decision with Devon",done:false},{t:"Terraform for the replica",done:false} ],
+    timeline:[ {time:"Aug 29",txt:"Raised by <b>Kai R.</b> after the August close slowdown"},{time:"Aug 30",txt:"Moved to Assessing — sizing estimate attached, waiting on a worth call"} ] },
+
+  { id:"CHG-0052", title:"Autoscale Courier workers on queue depth", project:"courier", type:"Normal", risk:"Low", priority:"P3",
+    state:"Assessing", envs:["staging","prod"], owner:"Devon M.", reviewer:"Kai R.", created:"Aug 29", window:"Not scheduled",
+    demand:{ source:"Incident", raisedBy:"Devon M.", raised:"Aug 29",
+      problem:"INC-0033: a provider webhook retry storm backed up the send queue for 45 min because Courier runs a fixed 2 workers. A human had to scale it." },
+    worth:{ value:"Courier absorbs spikes on its own. Closes the INC-0033 follow-up action.",
+      effort:"S", costOfDelay:"The next provider retry storm is another delayed-send incident.",
+      decision:"Pending", decidedBy:null, decided:null },
+    queue:{ bucket:"worth", why:"Small and clearly worth it — but it's Devon's call whether it jumps ahead of the Ledger replica for the next slot.", cta:"Log decision" },
+    summary:"Add a horizontal-pod-autoscaler on Courier keyed to queue depth (2 → 6 workers).",
+    rollback:"Remove the HPA, pin back to 2 workers.",
+    testPlan:"Replay the INC-0033 retry burst against staging, confirm the queue drains without manual intervention.",
+    tasks:[ {t:"Confirm queue-depth metric is exported",done:true},{t:"Worth decision with Devon",done:false},{t:"Write the HPA manifest",done:false} ],
+    linked:{ type:"incident", id:"INC-0033" },
+    timeline:[ {time:"Aug 29",txt:"Raised as the INC-0033 follow-up"},{time:"Aug 30",txt:"Moved to Assessing"} ] },
+
+  { id:"CHG-0054", title:"Aurora — server-sent events stream for /v2/events", project:"aurora", type:"Normal", risk:"Medium", priority:"P3",
+    state:"Planning", envs:["dev","test","staging","prod"], owner:"Kai R.", reviewer:"Devon M.", created:"Aug 26", window:"Not scheduled",
+    demand:{ source:"Customer", raisedBy:"Devon M.", raised:"Aug 25",
+      problem:"Two integrators asked for a push stream instead of polling /v2/events every few seconds — the polling is most of their API traffic and adds latency to their pipelines." },
+    worth:{ value:"Cuts a large slice of read traffic and gives integrators near-real-time events.",
+      effort:"M", costOfDelay:"Polling load keeps growing with each new integrator.",
+      decision:"Pursue", decidedBy:"Kai + Devon", decided:"Aug 28" },
+    summary:"Add an SSE endpoint alongside the existing polled one. Same auth, same event shape, backed by the existing change feed.",
+    rollback:"Feature-flagged (sse_events). Disable the flag; polling is untouched and stays the supported path.",
+    testPlan:"RFC still being written — draft test plan: connection-churn soak test, auth-expiry mid-stream behaviour, proxy/idle-timeout handling.",
+    tasks:[ {t:"Worth assessed — pursue",done:true},{t:"Write the RFC (scope + rollback + test plan)",done:false},{t:"Peer review",done:false},{t:"Schedule",done:false} ],
+    timeline:[ {time:"Aug 25",txt:"Raised from two integrator requests"},{time:"Aug 28",txt:"Worth call: <b>Pursue</b> — Kai + Devon"},{time:"Aug 29",txt:"Moved to Planning — Kai drafting the RFC"} ] },
+
+  { id:"CHG-0051", title:"Aurora 2.15 — keyset pagination rewrite", project:"aurora", type:"Normal", risk:"High", priority:"P2",
+    state:"Review", envs:["test","staging","prod"], owner:"Kai R.", reviewer:"Devon M.", created:"Aug 24",
+    window:"Sep 3 · 21:00–22:30 UTC (proposed)",
+    demand:{ source:"Tech debt", raisedBy:"Kai R.", raised:"Aug 24",
+      problem:"Offset pagination on the busy list endpoints degrades badly on deep pages, and it amplified INC-0034 when a scraper walked huge offsets." },
+    worth:{ value:"p95 on /events 900 ms → 180 ms in staging. Removes the deep-pagination failure mode that caused INC-0034 entirely.",
+      effort:"M", costOfDelay:"Recurring latency incidents; every scraper keeps amplifying them.",
+      decision:"Pursue", decidedBy:"Kai + Devon", decided:"Aug 27" },
+    queue:{ bucket:"auth", why:"High-risk change to the core read path. Needs Devon's technical review sign-off and an agreed prod window before it can be scheduled.", cta:"Authorise" },
+    summary:"Replace offset pagination with keyset cursors on the three highest-traffic list endpoints. Additive DB migration (one composite index).",
+    rollback:"Behind flag cursor_v2 — disabling it falls back to offset pagination instantly, no deploy. Migration is additive; no down-migration.",
+    testPlan:"Staging load test against a prod-mirror dataset at 2× current peak RPS; contract tests on all three endpoints; 24 h canary behind the flag in prod before full enable.",
+    tasks:[ {t:"Design doc reviewed & approved",done:true},{t:"Deploy to staging + smoke suite",done:true},{t:"Load test vs prod-mirror",done:true},{t:"Devon technical review",done:false},{t:"Agree prod window",done:false} ],
+    linked:{ type:"incident", id:"INC-0034" },
+    timeline:[ {time:"Aug 24",txt:"Raised by <b>Kai R.</b> as tech debt"},{time:"Aug 27",txt:"Worth call: <b>Pursue</b>"},{time:"Aug 28",txt:"RFC done, staging deploy — smoke suite green"},{time:"Aug 29",txt:"Load test attached: p95 /events 178 ms"},{time:"Aug 30",txt:"In Review — <b>Devon</b> left 2 comments on index naming"} ] },
+
+  { id:"CHG-0050", title:"Rotate Aurora JWT signing keys (Q3)", project:"aurora", type:"Standard", risk:"Medium", priority:"P2",
+    state:"Scheduled", envs:["staging","prod"], owner:"Kai R.", reviewer:"Devon M.", created:"Aug 26",
+    window:"Sep 1 · 22:00–23:00 UTC",
+    demand:{ source:"Compliance", raisedBy:"Rotation runbook", raised:"Aug 26",
+      problem:"Quarterly key-rotation policy — the Q3 rotation is due before Sep 30." },
+    worth:{ value:"Meets the rotation policy and limits the blast radius of a leaked key.",
+      effort:"S", costOfDelay:"Policy breach after Sep 30.",
+      decision:"Pursue", decidedBy:"Standard change — pre-authorised", decided:"—" },
+    summary:"Quarterly rotation of the JWT signing key pair. Old and new keys both validate for a 24 h overlap, so there's no hard cutover.",
+    rollback:"Re-publish the previous key bundle from vault snapshot v41. The overlap window means old tokens keep working for 24 h regardless.",
+    testPlan:"On staging: JWKS endpoint serves both keys; a token signed with the new key validates; old tokens still validate through the overlap.",
+    tasks:[ {t:"Generate new pair in vault",done:true},{t:"Stage + verify JWKS endpoint",done:true},{t:"Prod window booked",done:true} ],
+    timeline:[ {time:"Aug 26",txt:"Opened from the quarterly rotation runbook (standard change)"},{time:"Aug 28",txt:"Staged — JWKS serving both keys"},{time:"Aug 29",txt:"Scheduled for Sep 1"} ] },
+
+  { id:"CHG-0049", title:"Gateway — enforce mTLS on internal service mesh", project:"gateway", type:"Normal", risk:"High", priority:"P2",
+    state:"Scheduled", envs:["dev","test","staging","prod"], owner:"Devon M.", reviewer:"Kai R.", created:"Aug 20",
+    window:"Sep 5 · 06:00–08:00 UTC",
+    demand:{ source:"Compliance", raisedBy:"Devon M.", raised:"Aug 20",
+      problem:"The security review flagged unencrypted east-west traffic between internal services." },
+    worth:{ value:"Closes the audit finding. Internal traffic is authenticated and encrypted.",
+      effort:"M", costOfDelay:"The audit finding stays open.",
+      decision:"Pursue", decidedBy:"Kai + Devon", decided:"Aug 22" },
+    queue:{ bucket:"auth", why:"Touches every service at once. Kai to confirm the Sep 5 window works and that the rollback push was actually rehearsed on staging — not just written down.", cta:"Confirm & authorise" },
+    summary:"Move the service mesh from permissive to strict mTLS. Certs are already distributed; this flips the enforcement policy.",
+    rollback:"Revert the mesh policy to permissive with one config push (~30 s propagation). Non-destructive — certs stay in place.",
+    testPlan:"72 h permissive-mode dry run with policy audit logs to catch any plaintext caller; staged env-by-env; rollback push rehearsed on staging first.",
+    tasks:[ {t:"Distribute workload certs",done:true},{t:"Permissive dry-run + audit logs",done:true},{t:"Confirm no plaintext callers remain",done:true},{t:"Rehearse rollback push on staging",done:false},{t:"Announce maintenance window",done:false} ],
+    timeline:[ {time:"Aug 20",txt:"Raised from the security review"},{time:"Aug 22",txt:"Worth call: <b>Pursue</b>"},{time:"Aug 27",txt:"Permissive dry-run — 1 plaintext caller (a cron job) found and fixed"},{time:"Aug 30",txt:"Scheduled for Sep 5 — pending Kai's authorisation"} ] },
+
+  { id:"CHG-0048", title:"Ledger 4.1.7 — connection-pool tuning + fixes", project:"ledger", type:"Normal", risk:"Medium", priority:"P2",
+    state:"Implementing", envs:["prod"], owner:"Kai R.", reviewer:"Devon M.", created:"Aug 27",
+    window:"In progress · started 13:50 UTC",
+    demand:{ source:"Tech debt", raisedBy:"Kai R.", raised:"Aug 26",
+      problem:"Connection-pool-exhaustion warnings under load, plus two small billing-rounding bugs from the backlog." },
+    worth:{ value:"Removes the pool-exhaustion warnings and clears two customer-reported rounding bugs.",
+      effort:"S", costOfDelay:"Warnings become an outage under a big enough spike.",
+      decision:"Pursue", decidedBy:"Kai + Devon", decided:"Aug 27" },
+    summary:"Blue/green rollout of Ledger 4.1.7. Canary ramp 25 → 50 → 100 % with gates on prod error rate and p95.",
+    rollback:"Old fleet stays warm for 2 h. Router flips back automatically if error rate exceeds 1 % or p95 doubles.",
+    testPlan:"Full regression on staging; load test to confirm pool sizing holds at 2× peak; canary gates on prod.",
+    tasks:[ {t:"Regression + load test on staging",done:true},{t:"Green fleet deployed 4.1.7",done:true},{t:"Canary 25 % — gate passed",done:true},{t:"Canary 50 %",done:false},{t:"Full cutover + close",done:false} ],
+    progressNote:"Canary 25 % · 40 min in · error rate 0.2 %, p95 118 ms · next gate 50 % at 14:30 UTC",
+    timeline:[ {time:"13:50",txt:"Green fleet up on 4.1.7"},{time:"13:58",txt:"Canary at <b>25 %</b>"},{time:"14:20",txt:"Error rate 0.2 %, p95 118 ms — 25 % gate passed"},{time:"14:30",txt:"Holding at 25 % for the 60-min soak"} ] },
+
+  { id:"CHG-0047", title:"Courier — move transactional email to Postmark", project:"courier", type:"Normal", risk:"Medium", priority:"P2",
+    state:"PIR", envs:["staging","prod"], owner:"Devon M.", reviewer:"Kai R.", created:"Aug 18",
+    window:"Deployed Aug 25 · PIR closes Sep 1",
+    demand:{ source:"Tech debt", raisedBy:"Devon M.", raised:"Aug 18",
+      problem:"The self-hosted SMTP relay sat at a 96 % delivery rate with no bounce or complaint tracking." },
+    worth:{ value:"Higher delivery rate and real bounce/complaint visibility.",
+      effort:"M", costOfDelay:"Lost signups from undelivered verification email.",
+      decision:"Pursue", decidedBy:"Kai + Devon", decided:"Aug 20" },
+    summary:"Migrated all transactional email to Postmark. DKIM/SPF/DMARC verified before cutover; old relay kept warm 7 days.",
+    rollback:"Point the sending config back at the old relay. Not exercised; relay now decommissioned.",
+    testPlan:"48 h shadow-send in parallel with the old relay, comparing delivery rate and latency.",
+    tasks:[ {t:"Postmark server + domain verified",done:true},{t:"48 h shadow-send",done:true},{t:"Cutover",done:true},{t:"Decommission old relay",done:true},{t:"PIR — confirm value + close",done:false} ],
+    pir:{ valueRealized:"Partial", incidents:["INC-0033"],
+      lessons:"Delivery rate hit 99.7 % — value confirmed. But we didn't load-test the inbound webhook path, and INC-0033 (a retry storm) came straight out of that gap. Not fully 'Yes' until CHG-0052 lands." },
+    timeline:[ {time:"Aug 18",txt:"Raised as tech debt"},{time:"Aug 20",txt:"Worth call: <b>Pursue</b>"},{time:"Aug 25",txt:"Cutover — delivery rate 99.7 %"},{time:"Aug 29",txt:"INC-0033 during PIR window — retry storm"},{time:"Aug 30",txt:"PIR open — value Partial pending CHG-0052"} ] },
+
+  { id:"CHG-0046", title:"Emergency — patch Gateway header-parsing panic", project:"gateway", type:"Emergency", risk:"High", priority:"P1",
+    state:"Closed", envs:["prod"], owner:"Devon M.", reviewer:"Kai R.", created:"Aug 22",
+    window:"Deployed Aug 22 · 34 min after detection",
+    demand:{ source:"Incident", raisedBy:"Devon M.", raised:"Aug 22",
+      problem:"INC-0031: a null-deref on a malformed Forwarded header 500'd ~4 % of traffic." },
+    worth:{ value:"Stops an active production incident.",
+      effort:"S", costOfDelay:"Every minute is ~4 % of requests failing.",
+      decision:"Pursue", decidedBy:"Kai (retrospective ECAB review)", decided:"Aug 23" },
+    summary:"Nil guard + regression test on the Forwarded header parser. Deployed straight to prod on the emergency path, reviewed after the fact.",
+    rollback:"N/A — single-commit hotfix over a crashing build; rolling back restores the crash.",
+    testPlan:"Regression test reproducing the exact malformed header; smoke suite post-deploy.",
+    tasks:[ {t:"Reproduce from crash dump",done:true},{t:"Nil guard + regression test",done:true},{t:"Emergency deploy",done:true},{t:"Retrospective review (Kai)",done:true},{t:"Postmortem + fuzz coverage",done:true} ],
+    pir:{ valueRealized:"Yes", incidents:["INC-0031"],
+      lessons:"Bleeding stopped in 34 min. Root gap: no fuzz coverage on edge-header parsers — added, now runs in CI." },
+    linked:{ type:"incident", id:"INC-0031" },
+    timeline:[ {time:"03:14",txt:"INC-0031 opened — 5xx burst"},{time:"03:22",txt:"Cause: malformed Forwarded header"},{time:"03:41",txt:"Hotfix deployed, errors stop"},{time:"Aug 23",txt:"Retrospective review by <b>Kai R.</b>, postmortem filed"},{time:"Aug 24",txt:"Closed"} ] },
+
+  { id:"CHG-0045", title:"Pulse 0.6.2 — incident timeline view", project:"pulse", type:"Normal", risk:"Low", priority:"P3",
+    state:"Closed", envs:["staging","prod"], owner:"Kai R.", reviewer:"Devon M.", created:"Aug 22",
+    window:"Deployed Aug 24",
+    demand:{ source:"Opportunity", raisedBy:"Kai R.", raised:"Aug 22",
+      problem:"Wanted a per-incident timeline while dogfooding Pulse — small internal quality-of-life gap." },
+    worth:{ value:"Faster incident review for the two of us.", effort:"S", costOfDelay:"None — pure upside.",
+      decision:"Pursue", decidedBy:"Kai", decided:"Aug 22" },
+    summary:"Added the per-incident timeline component to the ops console. Internal-only, no external surface.",
+    rollback:"Revert the single frontend deploy. No data-model change.",
+    testPlan:"Staging review against real incident records.",
+    tasks:[ {t:"Build component",done:true},{t:"Staging review",done:true},{t:"Ship + close",done:true} ],
+    pir:{ valueRealized:"Yes", incidents:[], lessons:"Small, low-risk, shipped clean. Nothing to change." },
+    timeline:[ {time:"Aug 22",txt:"Raised + worth call same day (opportunity, S effort)"},{time:"Aug 24",txt:"Shipped to prod, closed"} ] },
+
+  { id:"CHG-0043", title:"Migrate Courier internal API to gRPC", project:"courier", type:"Normal", risk:"Medium", priority:"P3",
+    state:"Parked", envs:[], owner:"Kai R.", reviewer:"Devon M.", created:"Aug 12", window:"—",
+    demand:{ source:"Opportunity", raisedBy:"Kai R.", raised:"Aug 12",
+      problem:"Idea to move Courier's internal API from REST to gRPC for streaming and typed contracts." },
+    worth:{ value:"Marginal today — streaming would help one feature that isn't on the roadmap yet.",
+      effort:"L", costOfDelay:"None.",
+      decision:"Park", decidedBy:"Kai + Devon", decided:"Aug 15" },
+    summary:"Parked at the worth gate — revisit when the streaming feature is actually scheduled.",
+    timeline:[ {time:"Aug 12",txt:"Raised by <b>Kai R.</b> as an opportunity"},{time:"Aug 15",txt:"Worth call: <b>Park</b> — effort L, value not there yet"} ] },
+];
+const C = Object.fromEntries(CHANGES.map(c => [c.id, c]));
+
+const INCIDENTS = [
+  { id:"INC-0034", title:"Aurora /events latency spike", sev:"SEV3", state:"Monitoring", service:"Aurora API",
+    opened:"Aug 30 · 11:12 UTC", owner:"Kai R.",
+    impact:"p95 on /events climbed to ~2.1 s for about 18 minutes. No elevated error rate; slow responses only.",
+    cause:"A single ASN scraping /events with very large page offsets. Not a code regression.",
+    timeline:[ {time:"11:12",txt:"Alert fired — p95 > 1.5 s on /events"},{time:"11:20",txt:"Identified: one ASN hammering deep offset pages"},{time:"11:28",txt:"Rate-limited the offending ASN at the edge"},{time:"11:34",txt:"p95 back to ~200 ms — moved to <b>Monitoring</b>"} ],
+    linked:{ type:"change", id:"CHG-0051" }, followup:"CHG-0051 (keyset pagination) makes deep pagination cheap and removes this failure mode." },
+  { id:"INC-0033", title:"Courier delayed sends (~6 min lag)", sev:"SEV4", state:"Resolved", service:"Courier",
+    opened:"Aug 29 · 09:40 UTC", owner:"Devon M.",
+    impact:"Transactional email delayed by up to 6 minutes for ~45 minutes. All mail eventually delivered.",
+    cause:"Postmark webhook retry storm flooded the inbound queue; workers couldn't keep up.",
+    timeline:[ {time:"09:40",txt:"Queue depth alert"},{time:"09:52",txt:"Traced to webhook retry storm"},{time:"10:05",txt:"Scaled workers 2 → 4 by hand"},{time:"10:25",txt:"Queue drained — Resolved"} ],
+    linked:{ type:"change", id:"CHG-0052" }, followup:"CHG-0052 (autoscale Courier workers on queue depth) is in worth assessment as the permanent fix." },
+  { id:"INC-0032", title:"Staging DB disk at 92%", sev:"SEV4", state:"Resolved", service:"Internal — staging",
+    opened:"Aug 28 · 16:05 UTC", owner:"Kai R.",
+    impact:"No production impact. Staging deploys would have failed within ~1 day.",
+    cause:"Old WAL archives never pruned; volume undersized from initial setup.",
+    timeline:[ {time:"16:05",txt:"Disk usage alert on staging DB"},{time:"16:20",txt:"Pruned WAL archives older than 7 days"},{time:"16:40",txt:"Grew the volume 40 → 80 GB, added a prune cron"} ] },
+  { id:"INC-0031", title:"Gateway 5xx burst on malformed Forwarded header", sev:"SEV2", state:"Resolved", service:"Gateway",
+    opened:"Aug 22 · 03:14 UTC", owner:"Devon M.",
+    impact:"Every request carrying one specific malformed header shape returned 500 — roughly 4% of total traffic for 34 minutes.",
+    cause:"Null-pointer dereference in the Forwarded header parser. No nil guard on an optional segment.",
+    timeline:[ {time:"03:14",txt:"PagerDuty — 5xx rate 4%"},{time:"03:22",txt:"Isolated to requests with a malformed Forwarded header"},{time:"03:41",txt:"Hotfix (<b>CHG-0046</b>) deployed, errors stop"},{time:"03:48",txt:"Confirmed clean — Resolved"} ],
+    linked:{ type:"change", id:"CHG-0046" }, followup:"Postmortem filed. Added fuzz tests for all edge-header parsers." },
+  { id:"INC-0030", title:"Ledger webhook signature mismatch (partner)", sev:"SEV3", state:"Resolved", service:"Ledger Service",
+    opened:"Aug 19 · 14:30 UTC", owner:"Kai R.",
+    impact:"One partner's inbound webhooks rejected for ~2 h. Their events were replayed after the fix, no data lost.",
+    cause:"Clock skew on the partner's side combined with our 5-minute signature-timestamp tolerance being too tight.",
+    timeline:[ {time:"14:30",txt:"Partner reports 401s on their webhook deliveries"},{time:"14:55",txt:"Signature timestamps ~6 min behind our clock"},{time:"15:20",txt:"Widened tolerance to 10 min, asked partner to sync NTP"},{time:"16:10",txt:"Partner replayed the backlog — Resolved"} ] },
+];
+const I = Object.fromEntries(INCIDENTS.map(x => [x.id, x]));
+
+const SERVICES = [
+  { id:"aurora", name:"Aurora API", endpoint:"https://api.orbit.dev/v2/healthz", env:"prod", state:"degraded",
+    version:"2.14.2", p50:190, p95:2100, uptime:"99.94%", hist:seed(30, 180, 2200, 7) },
+  { id:"gateway", name:"Gateway", endpoint:"https://edge.orbit.dev/healthz", env:"prod", state:"operational",
+    version:"1.8.3", p50:12, p95:41, uptime:"99.99%", hist:seed(30, 10, 46, 2) },
+  { id:"ledger", name:"Ledger Service", endpoint:"http://ledger.internal:8080/healthz", env:"prod", state:"operational",
+    version:"4.1.6 → 4.1.7", p50:44, p95:120, uptime:"99.97%", hist:seed(30, 40, 130, 3), rolling:true },
+  { id:"courier", name:"Courier", endpoint:"http://courier.internal:8080/healthz", env:"prod", state:"operational",
+    version:"3.4.1", p50:210, p95:680, uptime:"99.90%", hist:seed(30, 190, 720, 5) },
+  { id:"pulse", name:"Pulse", endpoint:"https://pulse.orbit.internal/healthz", env:"prod", state:"operational",
+    version:"0.6.0", p50:30, p95:88, uptime:"99.95%", hist:seed(30, 26, 96, 3) },
+];
+
+const ACTIVITY = [
+  { c:"var(--warn)", txt:"<b>INC-0034</b> moved to Monitoring — Aurora /events latency back to normal", meta:"11:34 · today" },
+  { c:"var(--accent)", txt:"<b>CHG-0048</b> canary passed the 25% gate — error rate 0.2%", meta:"14:20 · today" },
+  { c:"var(--text-3)", txt:"<b>CHG-0053</b> raised from the support inbox — self-serve API keys", meta:"today" },
+  { c:"var(--text-3)", txt:"<b>Devon</b> left 2 review comments on <b>CHG-0051</b>", meta:"09:50 · today" },
+  { c:"var(--accent)", txt:"<b>CHG-0044</b> &amp; <b>CHG-0052</b> in Assessing — both waiting on a worth call", meta:"Aug 30" },
+  { c:"var(--accent)", txt:"<b>CHG-0047</b> entered PIR — value Partial pending the INC-0033 fix", meta:"Aug 30" },
+  { c:"var(--ok)", txt:"<b>CHG-0054</b> worth call: Pursue — Aurora SSE stream, RFC in progress", meta:"Aug 28" },
+  { c:"var(--info)", txt:"<b>CHG-0043</b> parked at the worth gate — gRPC migration, effort L", meta:"Aug 15" },
+];
+
+/* ================= KANBAN ================= */
+const BOARD_COLS = ["Backlog","In progress","Review","Done"];
+let taskSeq = 100;
+const TASKS = [
+  // team board — cross-cutting
+  { id:"T-01", board:"team", col:"In progress", tag:"ops",      who:"Devon M.", title:"Draft the mTLS maintenance-window comms", link:"CHG-0049" },
+  { id:"T-02", board:"team", col:"Backlog",     tag:"decision", who:"Kai R.",   title:"Decide: Ledger read replica vs a query-tuning spike", link:"CHG-0044" },
+  { id:"T-03", board:"team", col:"Backlog",     tag:"ops",      who:"Kai R.",   title:"Monthly infra cost review" },
+  { id:"T-04", board:"team", col:"Review",      tag:"ops",      who:"Devon M.", title:"Write the incident postmortem template" },
+  { id:"T-05", board:"team", col:"Backlog",     tag:"infra",    who:"Kai R.",   title:"Stand up a public status page for customers" },
+  { id:"T-06", board:"team", col:"Done",        tag:"ops",      who:"Kai R.",   title:"Renew the api.orbit.dev TLS cert" },
+  { id:"T-07", board:"team", col:"In progress", tag:"ops",      who:"Kai R.",   title:"Give Devon vault-admin access" },
+  // aurora
+  { id:"T-08", board:"aurora", col:"In progress", tag:"feat", who:"Kai R.",   title:"Keyset pagination — address Devon's index-naming comments", link:"CHG-0051" },
+  { id:"T-09", board:"aurora", col:"Backlog",     tag:"feat", who:"Kai R.",   title:"SSE stream RFC — write the test-plan section", link:"CHG-0054" },
+  { id:"T-10", board:"aurora", col:"Review",      tag:"bug",  who:"Kai R.",   title:"Edge rate-limit rule for deep-offset scrapers", link:"INC-0034" },
+  { id:"T-11", board:"aurora", col:"Backlog",     tag:"feat", who:"Devon M.", title:"Spec the self-serve API-key UI", link:"CHG-0053" },
+  // gateway
+  { id:"T-12", board:"gateway", col:"In progress", tag:"infra", who:"Devon M.", title:"Rehearse the mTLS rollback push on staging", link:"CHG-0049" },
+  { id:"T-13", board:"gateway", col:"Done",        tag:"bug",   who:"Devon M.", title:"Fuzz tests for the remaining edge-header parsers", link:"CHG-0046" },
+  { id:"T-14", board:"gateway", col:"Done",        tag:"infra", who:"Devon M.", title:"Move the last cron job off plaintext mesh calls" },
+  // ledger
+  { id:"T-15", board:"ledger", col:"In progress", tag:"infra", who:"Kai R.", title:"Sizing spike for the read replica", link:"CHG-0044" },
+  { id:"T-16", board:"ledger", col:"In progress", tag:"ops",   who:"Kai R.", title:"4.1.7 canary — watch the 50% gate", link:"CHG-0048" },
+  { id:"T-17", board:"ledger", col:"Review",      tag:"bug",   who:"Kai R.", title:"Fix billing rounding bug #2", link:"CHG-0048" },
+  { id:"T-18", board:"ledger", col:"Done",        tag:"bug",   who:"Kai R.", title:"Widen partner webhook clock tolerance", link:"INC-0030" },
+  // courier
+  { id:"T-19", board:"courier", col:"Backlog", tag:"infra", who:"Devon M.", title:"Write the worker autoscaling (HPA) manifest", link:"CHG-0052" },
+  { id:"T-20", board:"courier", col:"Backlog", tag:"ops",   who:"Devon M.", title:"Replay the INC-0033 retry burst on staging", link:"CHG-0052" },
+  { id:"T-21", board:"courier", col:"Done",    tag:"ops",   who:"Devon M.", title:"Decommission the old SMTP relay's monitoring" },
+  // pulse
+  { id:"T-22", board:"pulse", col:"In progress", tag:"feat", who:"Kai R.", title:"Kanban board view" },
+  { id:"T-23", board:"pulse", col:"Review",      tag:"feat", who:"Kai R.", title:"Gated lifecycle in the change drawer" },
+  { id:"T-24", board:"pulse", col:"Done",        tag:"feat", who:"Kai R.", title:"Dark-mode polish pass" },
+];
+const BOARDS = [{ id:"team", name:"Team" }, ...PROJECTS.map(p => ({ id:p.id, name:p.name }))];
+let boardTab = "team";
+
+/* ================= ATTACHMENTS ================= */
+// Files attached to a change or incident — evidence, recordings, RFCs, postmortems.
+// Seeded entries have no blob; uploads made in-session get a real preview and are lost on reload.
+const ATTACH = {
+  "CHG-0051": [
+    { name:"keyset-loadtest-p95.png",     type:"image", size:212992,  by:"Kai R.",   at:"Aug 29" },
+    { name:"pagination-design-doc.pdf",    type:"pdf",   size:154000,  by:"Kai R.",   at:"Aug 27" },
+  ],
+  "CHG-0049": [
+    { name:"mtls-permissive-dry-run.log",  type:"text",  size:441000,  by:"Devon M.", at:"Aug 27" },
+    { name:"rollback-push-rehearsal.mp4",  type:"video", size:5400000, by:"Devon M.", at:"Aug 30" },
+  ],
+  "CHG-0048": [
+    { name:"canary-25pct-grafana.png",     type:"image", size:188000,  by:"Kai R.",   at:"14:22 today" },
+    { name:"4.1.7-rollout-runbook.md",     type:"text",  size:8400,    by:"Kai R.",   at:"Aug 27" },
+  ],
+  "CHG-0047": [
+    { name:"delivery-rate-before-after.png", type:"image", size:96000, by:"Devon M.", at:"Aug 25" },
+  ],
+  "CHG-0046": [
+    { name:"postmortem-INC-0031.md",       type:"text",  size:11200,   by:"Kai R.",   at:"Aug 23" },
+    { name:"crash-dump-analysis.txt",      type:"text",  size:60300,   by:"Devon M.", at:"Aug 22" },
+  ],
+  "INC-0034": [
+    { name:"latency-spike-grafana.png",    type:"image", size:174000,  by:"Kai R.",   at:"11:30 today" },
+    { name:"offending-asn-access.log",     type:"text",  size:820000,  by:"Kai R.",   at:"11:22 today" },
+  ],
+  "INC-0033": [
+    { name:"courier-queue-depth.png",      type:"image", size:88000,   by:"Devon M.", at:"Aug 29" },
+  ],
+  "INC-0031": [
+    { name:"5xx-burst-dashboard.png",      type:"image", size:143000,  by:"Devon M.", at:"Aug 22" },
+    { name:"incident-call-recording.m4a",  type:"audio", size:8200000, by:"Devon M.", at:"Aug 22" },
+  ],
+};
+const ATT_ICON = {
+  image:  ["var(--accent)",  '<rect x="3" y="4" width="14" height="12" rx="2"/><circle cx="7.5" cy="8.5" r="1.5"/><path d="M4 15l4-4 3 3 3-3 3 3"/>'],
+  video:  ["var(--dev)",     '<rect x="3" y="4" width="14" height="12" rx="2"/><path d="M9 7.5l4 2.5-4 2.5z" fill="currentColor" stroke="none"/>'],
+  audio:  ["var(--test)",    '<path d="M4 8v4M8 5v10M12 7v6M16 9v2"/>'],
+  pdf:    ["var(--crit)",    '<path d="M6 2h6l4 4v12H6z"/><path d="M12 2v4h4"/><path d="M8.5 12.5h3M8.5 15h3"/>'],
+  text:   ["var(--info)",    '<path d="M6 2h8l3 3v13H6z"/><path d="M9 9h5M9 12h5M9 15h3"/>'],
+  doc:    ["var(--accent)",  '<path d="M6 2h8l3 3v13H6z"/><path d="M9 10h5M9 13h5"/>'],
+  archive:["var(--warn)",    '<path d="M5 3h10v15H5z"/><path d="M10 3v15M8 6h4M8 9h4"/>'],
+  other:  ["var(--text-3)",  '<path d="M6 2h8l3 3v13H6z"/>'],
+};
+function fmtSize(b){
+  return b < 1024 ? b + " B" : b < 1048576 ? Math.round(b/1024) + " KB" : (b/1048576).toFixed(1) + " MB";
+}
+function fileKind(name, mime){
+  const m = (mime || "").toLowerCase(), n = (name || "").toLowerCase();
+  if(m.startsWith("image/") || /\.(png|jpe?g|gif|webp|svg|bmp|heic)$/.test(n)) return "image";
+  if(m.startsWith("video/") || /\.(mp4|mov|webm|mkv|avi|m4v)$/.test(n)) return "video";
+  if(m.startsWith("audio/") || /\.(mp3|m4a|wav|ogg|aac|flac)$/.test(n)) return "audio";
+  if(m === "application/pdf" || /\.pdf$/.test(n)) return "pdf";
+  if(m.startsWith("text/") || /\.(md|txt|log|csv|json|ya?ml|toml)$/.test(n)) return "text";
+  if(/\.(docx?|pages|rtf|odt)$/.test(n)) return "doc";
+  if(/\.(zip|tar|gz|tgz|7z|rar)$/.test(n)) return "archive";
+  return "other";
+}
+function attachSection(id){
+  const list = ATTACH[id] || [];
+  return `<div class="dr-sec"><h4>Attachments &mdash; ${list.length}</h4>
+    <label class="dropzone" data-drop="${id}">
+      <input type="file" multiple hidden data-upload="${id}">
+      <svg viewBox="0 0 20 20"><path d="M10 13V3M6.5 6.5L10 3l3.5 3.5M4 14v2a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-2"/></svg>
+      Drop recordings, docs or screenshots here, or click to browse
+    </label>
+    ${list.length ? `<div class="attach-list">${list.map((a,i) => attachItem(id, a, i)).join("")}</div>` : ""}
+  </div>`;
+}
+function attachItem(id, a, i){
+  const [col, path] = ATT_ICON[a.type] || ATT_ICON.other;
+  const thumb = a.url && a.type === "image"
+    ? `<img class="attach-thumb" src="${a.url}" alt="">`
+    : `<span class="attach-ico" style="--c:${col}"><svg viewBox="0 0 20 20">${path}</svg></span>`;
+  const media = a.url && a.type === "image" ? `<div class="attach-media"><img src="${a.url}" alt="${esc(a.name)}"></div>`
+    : a.url && a.type === "video" ? `<div class="attach-media"><video controls preload="metadata" src="${a.url}"></video></div>`
+    : a.url && a.type === "audio" ? `<div class="attach-media"><audio controls src="${a.url}"></audio></div>` : "";
+  return `<div class="attach">
+    <div class="attach-row">
+      ${thumb}
+      <div class="attach-info">
+        <div class="attach-name">${esc(a.name)}</div>
+        <div class="attach-meta">${fmtSize(a.size)} &middot; ${esc(a.by)} &middot; ${a.at}${a.real ? "" : ""}</div>
+      </div>
+      <button class="attach-del" data-attdel="${id}:${i}" aria-label="Remove ${esc(a.name)}"><svg viewBox="0 0 14 14"><path d="M3 3l8 8M11 3l-8 8"/></svg></button>
+    </div>
+    ${media}
+  </div>`;
+}
+function attachCount(id){ return (ATTACH[id] || []).length; }
+
+const STATE_STYLE = {
+  "Demand":      { cls:"info",   dot:false },
+  "Assessing":   { cls:"accent", dot:false },
+  "Planning":    { cls:"warn",   dot:false },
+  "Review":      { cls:"warn",   dot:false },
+  "Scheduled":   { cls:"accent", dot:false },
+  "Implementing":{ cls:"warn",   dot:true  },
+  "PIR":         { cls:"accent", dot:false },
+  "Closed":      { cls:"ok",     dot:false },
+  "Parked":      { cls:"info",   dot:false },
+  "Rolled Back": { cls:"crit",   dot:false },
+};
+// ITIL-ish lifecycle: a demand is validated for worth, becomes an RFC, gets authorised, deployed, then reviewed.
+const CHG_STATES = ["Demand","Assessing","Planning","Review","Scheduled","Implementing","PIR","Closed"];
+const CHG_PHASE = { Demand:"intake", Assessing:"intake", Planning:"plan", Review:"plan", Scheduled:"plan", Implementing:"deploy", PIR:"validate", Closed:"validate" };
+const PHASE_COLOR = { intake:"var(--text-3)", plan:"var(--warn)", deploy:"var(--accent)", validate:"var(--prod)" };
+const PHASE_LABEL = { intake:"Intake", plan:"Plan &amp; authorise", deploy:"Deploy", validate:"Validate" };
+const DECISION_STYLE = { "Pursue":"ok", "Park":"info", "Drop":"crit", "Pending":"warn" };
+
+// The lifecycle: every stage has an EXIT GATE — a checklist that must be complete before a change advances.
+const LIFECYCLE = [
+  { key:"Demand", label:"Demand", phase:"intake",
+    purpose:"Capture the need and where it came from.",
+    gate:[
+      { t:"Problem written in plain language", hint:"One paragraph a non-technical reader can follow." },
+      { t:"Demand source identified", hint:"Incident, customer, tech debt, compliance or opportunity." },
+      { t:"Affected project / service named" },
+      { t:"Checked it isn't a duplicate of an open change" },
+    ] },
+  { key:"Assessing", label:"Assessing worth", phase:"intake",
+    purpose:"Decide together whether it's worth doing now.",
+    gate:[
+      { t:"Expected value stated", hint:"What measurably improves." },
+      { t:"Effort estimated — S / M / L" },
+      { t:"Cost of delay / do-nothing cost stated" },
+      { t:"Alternatives considered", hint:"Including doing nothing." },
+      { t:"Priority set — P1 / P2 / P3" },
+      { t:"Worth decision recorded", hint:"Pursue / Park / Drop, agreed by both, dated." },
+    ] },
+  { key:"Planning", label:"Planning (RFC)", phase:"plan",
+    purpose:"Write the change so the other person could run it.",
+    gate:[
+      { t:"Change type set", hint:"Standard, Normal or Emergency." },
+      { t:"Implementation steps written" },
+      { t:"Rollback plan written and specific" },
+      { t:"Test plan written", hint:"What proves it worked, and in which environment." },
+      { t:"Environments and rollout sequence listed" },
+      { t:"Risk assessed", hint:"Impact against likelihood." },
+      { t:"Change window proposed" },
+    ] },
+  { key:"Review", label:"Review (CAB)", phase:"plan",
+    purpose:"The other person reviews it and authorises.",
+    gate:[
+      { t:"Peer technical review done, comments resolved" },
+      { t:"Rollback plan verified feasible or rehearsed" },
+      { t:"Test plan agreed" },
+      { t:"Window agreed, no clash with another change" },
+      { t:"Authorised by the reviewer, dated" },
+    ] },
+  { key:"Scheduled", label:"Scheduled", phase:"plan",
+    purpose:"Booked in, everyone ready.",
+    gate:[
+      { t:"On the change calendar" },
+      { t:"Affected parties notified", hint:"Customers or partners, if the change is visible to them." },
+      { t:"Pre-checks and backups done" },
+      { t:"Go / no-go confirmed at window start" },
+    ] },
+  { key:"Implementing", label:"Implementing", phase:"deploy",
+    purpose:"Roll out through the environments.",
+    gate:[
+      { t:"Deployed DEV → TEST → STAGING, tests green at each" },
+      { t:"Rollout / canary gates passed" },
+      { t:"Live in PROD" },
+      { t:"Smoke tests green in PROD" },
+      { t:"Monitoring clean through the soak period" },
+    ] },
+  { key:"PIR", label:"Post-implementation review", phase:"validate",
+    purpose:"Did it deliver the value from the worth assessment?",
+    gate:[
+      { t:"Value realised assessed — Yes / Partial / No" },
+      { t:"Incidents caused identified and linked" },
+      { t:"Lessons captured" },
+      { t:"Follow-up actions filed" },
+      { t:"Rollback assets cleaned up", hint:"Old fleet, feature flags, temporary access." },
+    ] },
+  { key:"Closed", label:"Closed", phase:"validate",
+    purpose:"Done and recorded.", gate:[] },
+];
+const LC_INDEX = Object.fromEntries(LIFECYCLE.map((s,i) => [s.key, i]));
+
+// Current-stage gate progress per change. Earlier stages are treated as complete; later stages as untouched.
+const GATE_STATE = {
+  "CHG-0053": [true, true, false, false],
+  "CHG-0044": [true, true, true, true, true, false],
+  "CHG-0052": [true, true, true, true, true, false],
+  "CHG-0054": [true, true, true, false, true, true, false],
+  "CHG-0051": [false, true, true, false, false],
+  "CHG-0050": [true, true, true, false],
+  "CHG-0049": [true, true, false, false],
+  "CHG-0048": [true, true, false, false, false],
+  "CHG-0047": [true, true, true, true, false],
+  "CHG-0046": [],
+  "CHG-0045": [],
+  "CHG-0043": [true, true, true, true, true, true],
+};
+const checkSvg   = '<svg viewBox="0 0 14 14" class="ck" aria-hidden="true"><path d="M3 7.5l3 3 5-6"/></svg>';
+const checkSvgSm = '<svg viewBox="0 0 12 12" class="ck" aria-hidden="true"><path d="M2 6l3 3 5-6"/></svg>';
+const expandedSteps = new Set();
+
+function stageStatus(c, key){
+  const si = LC_INDEX[key];
+  if(c.state === "Parked") return si <= LC_INDEX["Assessing"] ? "done" : "upcoming";
+  if(c.state === "Rolled Back") return si <= LC_INDEX["Implementing"] ? "done" : "upcoming";
+  const ci = LC_INDEX[c.state];
+  return si < ci ? "done" : si === ci ? "current" : "upcoming";
+}
+function gateBools(c, key){
+  const stage = LIFECYCLE[LC_INDEX[key]];
+  const st = stageStatus(c, key);
+  if(st === "done")     return stage.gate.map(() => true);
+  if(st === "upcoming") return stage.gate.map(() => false);
+  const stored = GATE_STATE[c.id] || stage.gate.map(() => false);
+  return stage.gate.map((_, i) => !!stored[i]);
+}
+function currentStage(c){
+  if(["Parked","Rolled Back","Closed"].includes(c.state)) return null;
+  return LIFECYCLE[LC_INDEX[c.state]];
+}
+function canAdvance(c){
+  const stage = currentStage(c);
+  if(!stage || !stage.gate.length) return false;
+  return gateBools(c, c.state).every(Boolean);
+}
+function gateProgress(c){
+  const stage = currentStage(c);
+  if(!stage) return null;
+  const b = gateBools(c, c.state);
+  return { done: b.filter(Boolean).length, total: stage.gate.length, label: stage.label };
+}
+const INC_STATE_STYLE = {
+  "Investigating":{cls:"crit"}, "Identified":{cls:"warn"}, "Monitoring":{cls:"warn"}, "Resolved":{cls:"ok"},
+};
+const STAGES = ["dev","test","staging","prod"];
+
+/* ================= HELPERS ================= */
+function seed(n, lo, hi, jit){
+  const a=[]; let v=(lo+hi)/2;
+  for(let i=0;i<n;i++){ v += (Math.random()-.5)*(hi-lo)/jit; v=Math.max(lo,Math.min(hi,v)); a.push(Math.round(v)); }
+  return a;
+}
+const $ = (s,r=document) => r.querySelector(s);
+const $$ = (s,r=document) => [...r.querySelectorAll(s)];
+function h(html){ const t=document.createElement("template"); t.innerHTML=html.trim(); return t.content.firstElementChild; }
+function esc(s){ return String(s).replace(/[&<>"]/g, c=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c])); }
+function sparkPath(vals, w, hgt){
+  const lo=Math.min(...vals), hi=Math.max(...vals), rng=hi-lo||1;
+  const step=w/(vals.length-1);
+  const pts=vals.map((v,i)=>[i*step, hgt-((v-lo)/rng)*(hgt-4)-2]);
+  const line="M"+pts.map(p=>p[0].toFixed(1)+" "+p[1].toFixed(1)).join(" L ");
+  const area=line+` L ${w} ${hgt} L 0 ${hgt} Z`;
+  return { line, area, last:pts[pts.length-1] };
+}
+
+/* ================= RENDER: OVERVIEW ================= */
+function tile(lab, big, sub, subColor){
+  return `<div class="tile">
+    <span class="lab">${lab}</span>
+    <span class="big num">${big}</span>
+    <span class="sub">${subColor?`<span class="tick" style="background:${subColor}"></span>`:""}${sub}</span>
+  </div>`;
+}
+const RQ_GROUPS = [
+  { bucket:"worth", head:"Worth calls &mdash; is it worth doing?" },
+  { bucket:"auth",  head:"Authorisation calls &mdash; cleared to proceed?" },
+];
+function renderOverview(){
+  const activeInc = INCIDENTS.filter(i => i.state!=="Resolved").length;
+  const inFlight = CHANGES.filter(c => ["Scheduled","Implementing"].includes(c.state)).length;
+  const worthOpen = CHANGES.filter(c => c.state==="Assessing").length;
+  const healthy = SERVICES.filter(s => s.state==="operational").length;
+
+  $("#ov-tiles").innerHTML =
+    tile("Change register", CHANGES.length, `${CHANGES.filter(c=>c.state==="Parked").length} parked &middot; ${CHANGES.filter(c=>c.state==="Closed").length} closed`) +
+    tile("Worth calls open", worthOpen, "need a joint pursue / park decision", "var(--accent)") +
+    tile("In flight", inFlight, "CHG-0048 deploying now", "var(--accent)") +
+    tile("Active incidents", activeInc, activeInc? "INC-0034 &middot; SEV3 &middot; monitoring":"all clear", activeInc?"var(--warn)":"var(--ok)");
+
+  // review queue — grouped by decision type
+  const rq = CHANGES.filter(c => c.queue);
+  $("#rq-count").textContent = rq.length + " open";
+  $("#rq-list").innerHTML = RQ_GROUPS.map(g => {
+    const items = rq.filter(c => c.queue.bucket===g.bucket);
+    if(!items.length) return "";
+    return `<div class="rq-group-head">${g.head}</div>` + items.map(c => `
+      <div class="rq" data-open="change:${c.id}" role="button" tabindex="0">
+        <div class="rq-top">
+          <span class="rq-id mono">${c.id}</span>
+          <span class="rq-title">${esc(c.title)}</span>
+          ${statePill(c.state)}
+        </div>
+        <div class="rq-why">${c.queue.why}</div>
+        <div class="rq-act">
+          <button class="btn primary" data-toast="${c.queue.cta} &mdash; logged for ${c.id}">${c.queue.cta}</button>
+          <button class="btn" data-toast="Added a note to ${c.id}">Add note</button>
+        </div>
+      </div>`).join("");
+  }).join("");
+
+  $("#ov-feed").innerHTML = ACTIVITY.map(a => `
+    <li><span class="fdot" style="background:${a.c}"></span>
+      <span><span class="ftext">${a.txt}</span><span class="fmeta">${a.meta}</span></span></li>`).join("");
+
+  // lifecycle funnel — one segment per state, coloured by ITIL phase
+  const total = CHANGES.length;
+  const counts = CHG_STATES.map(s => ({ s, n:CHANGES.filter(c=>c.state===s).length, ph:CHG_PHASE[s] }));
+  const parked = CHANGES.filter(c=>c.state==="Parked").length;
+  $("#ov-funnel").innerHTML = counts.filter(x=>x.n).map(x =>
+    `<i style="width:${x.n/total*100}%;background:${PHASE_COLOR[x.ph]}" title="${x.s}: ${x.n}"></i>`).join("");
+  const phaseSeen = new Set();
+  $("#ov-funnel-legend").innerHTML = counts.map(x => {
+    const showPhase = !phaseSeen.has(x.ph); phaseSeen.add(x.ph);
+    return `<span style="--c:${PHASE_COLOR[x.ph]}">${x.s} <b>${x.n}</b>${showPhase?` <i class="ph-tag">${PHASE_LABEL[x.ph]}</i>`:""}</span>`;
+  }).join("") + (parked?`<span style="--c:var(--info)">Parked <b>${parked}</b></span>`:"");
+
+  // team board
+  renderBoard("team", $("#ov-board"), true);
+
+  // env snapshot
+  $("#ov-snap").innerHTML = PROJECTS.map(p => `
+    <div class="snap-row">
+      <div class="sn-name">${esc(p.name)}<small>${p.repo}</small></div>
+      ${miniPipe(p)}
+    </div>`).join("");
+}
+function miniPipe(p){
+  return `<div class="pipe">` + STAGES.map(st => {
+    const filled = !!p.pipe[st];
+    const focus = p.focus===st;
+    return `<div class="stg ${st} ${filled?"filled":""} ${focus?"focus":""}">
+      <span class="node"></span>
+      <span class="en">${st}</span>
+      <span class="ver ${st==="prod"?"":"dim"}">${p.pipe[st]||"—"}</span>
+    </div>`;
+  }).join("") + `</div>`;
+}
+
+/* ================= RENDER: CHANGES ================= */
+function statePill(state){
+  const s = STATE_STYLE[state] || { cls:"info" };
+  return `<span class="pill ${s.cls} ${s.dot?"live":""}">${s.dot?'<span class="pdot"></span>':""}${state}</span>`;
+}
+function priChip(p){ return `<span class="pri ${p.toLowerCase()}">${p}</span>`; }
+function renderChanges(){
+  const intake = CHANGES.filter(c=>["Demand","Assessing"].includes(c.state)).length;
+  $("#chg-tiles").innerHTML =
+    tile("In register", CHANGES.length, `${CHANGES.filter(c=>c.state==="Parked").length} parked`) +
+    tile("Demand &amp; assessment", intake, "awaiting a worth call", "var(--accent)") +
+    tile("Awaiting authorisation", CHANGES.filter(c=>c.state==="Review").length, "peer sign-off + window", "var(--warn)") +
+    tile("Emergency (30d)", CHANGES.filter(c=>c.type==="Emergency").length, "CHG-0046 &middot; reviewed after", "var(--crit)");
+
+  $("#chg-rows").innerHTML = CHANGES.map(c => {
+    const idx = c.state === "Parked" ? LC_INDEX["Assessing"] : LC_INDEX[c.state] ?? 0;
+    const pips = LIFECYCLE.map((s,i) => {
+      const cls = c.state === "Parked" && i === idx ? "parked" : i < idx ? "past" : i === idx ? "now" : "";
+      return `<span class="pip ${cls}" style="--c:${PHASE_COLOR[s.phase]}"></span>`;
+    }).join("");
+    return `<button class="trow" data-open="change:${c.id}">
+      <span class="t-id">${c.id}</span>
+      <span class="t-title">${esc(c.title)}${c.type==="Emergency"?' <span class="tag-em">EMG</span>':c.type==="Standard"?' <span class="tag-std">STD</span>':""}${attachCount(c.id)?` <span class="rowclip">&#128206;${attachCount(c.id)}</span>`:""}</span>
+      <span class="t-proj">${esc(P[c.project])}</span>
+      <span>${priChip(c.priority)}</span>
+      <span class="t-src">${c.demand ? c.demand.source : "—"}</span>
+      <span class="t-stage">${statePill(c.state)}<span class="pips">${pips}</span></span>
+      <span class="t-owner">${c.owner}</span>
+    </button>`;
+  }).join("");
+}
+
+/* ================= RENDER: INCIDENTS ================= */
+function renderIncidents(){
+  const active = INCIDENTS.filter(i=>i.state!=="Resolved");
+  $("#inc-tiles").innerHTML =
+    tile("Active", active.length, active.length?"INC-0034 · SEV3":"none open", active.length?"var(--warn)":"var(--ok)") +
+    tile("Resolved (30d)", INCIDENTS.filter(i=>i.state==="Resolved").length, "all with follow-ups") +
+    tile("SEV1 / SEV2 (30d)", INCIDENTS.filter(i=>["SEV1","SEV2"].includes(i.sev)).length, "INC-0031 · 34 min", "var(--crit)") +
+    tile("MTTR (30d)", "41m", "median time to resolve");
+
+  $("#inc-list").innerHTML = INCIDENTS.map(i => {
+    const sevCls = i.sev.toLowerCase();
+    const ss = INC_STATE_STYLE[i.state] || {cls:"info"};
+    return `<button class="inc ${sevCls}" data-open="incident:${i.id}">
+      <div class="i-top">
+        <span class="sev-tag ${sevCls}">${i.sev}</span>
+        <span class="pill ${ss.cls}">${i.state}</span>
+        ${i.linked?`<span class="pill info" style="text-transform:none">↔ ${i.linked.id}</span>`:""}
+        <span class="i-id">${i.id}</span>
+      </div>
+      <div class="i-title">${esc(i.title)}</div>
+      <div class="i-impact">${esc(i.impact)}</div>
+      <div class="i-meta"><span>${esc(i.service)}</span><span class="sep">·</span><span>${i.owner}</span><span class="sep">·</span><span>opened ${i.opened}</span>${attachCount(i.id)?`<span class="sep">·</span><span>&#128206; ${attachCount(i.id)}</span>`:""}</div>
+    </button>`;
+  }).join("");
+}
+
+/* ================= RENDER: PROJECTS ================= */
+function renderProjects(){
+  $("#proj-cards").innerHTML = PROJECTS.map(p => `
+    <div class="card">
+      <div class="c-head">
+        <div>
+          <div class="c-name">${esc(p.name)}</div>
+          <div class="c-kind">${esc(p.kind)}</div>
+        </div>
+        <div class="c-right">
+          <div class="ava ${p.owner==="Kai R."?"k":"d"}" style="display:inline-grid" title="${p.owner}">${p.owner.split(" ").map(x=>x[0]).join("")}</div>
+        </div>
+      </div>
+      ${fullPipe(p)}
+      <div>
+        <div class="progress" title="${Math.round(p.progress*100)}%"><i style="width:${p.progress*100}%;${p.progress===1?"background:var(--ok)":""}"></i></div>
+        <div class="focus-note" style="margin-top:9px"><span class="k">Now</span><span>${esc(p.note)}</span></div>
+      </div>
+      <div class="c-foot">
+        <span>${p.repo}</span><span class="sep">·</span><span>${p.lastDeploy}</span>
+        <button class="btn" data-goboard="${p.id}" style="margin-left:auto;padding:3px 9px">Board &rarr;</button>
+      </div>
+    </div>`).join("");
+}
+function fullPipe(p){
+  return `<div class="pipe">` + STAGES.map(st => {
+    const filled = !!p.pipe[st];
+    const focus = p.focus===st;
+    return `<div class="stg ${st} ${filled?"filled":""} ${focus?"focus":""}">
+      <span class="node"></span>
+      <span class="en">${st}</span>
+      <span class="ver ${filled?"":"dim"}">${p.pipe[st]||"—"}</span>
+    </div>`;
+  }).join("") + `</div>`;
+}
+
+/* ================= RENDER: BOARD (KANBAN) ================= */
+function taskCard(t){
+  const i = BOARD_COLS.indexOf(t.col);
+  const ava = t.who === "Kai R." ? "k" : "d";
+  const init = t.who.split(" ").map(x => x[0]).join("");
+  const linkKind = t.link ? (t.link.startsWith("INC") ? "incident" : "change") : null;
+  return `<div class="kcard ${t.col==="Done"?"done":""}" draggable="true" data-task="${t.id}">
+    <div class="kcard-top">
+      <span class="ktag ${t.tag}">${t.tag}</span>
+      <span class="kmove">
+        <button data-move="${t.id}:-1" ${i<=0?"disabled":""} aria-label="Move back">&lsaquo;</button>
+        <button data-move="${t.id}:1" ${i>=BOARD_COLS.length-1?"disabled":""} aria-label="Move forward">&rsaquo;</button>
+      </span>
+    </div>
+    <div class="kcard-title" data-task-title="${t.id}">${esc(t.title)}</div>
+    <div class="kcard-foot">
+      <span class="ava ${ava} kava" title="${esc(t.who)}">${init}</span>
+      ${t.link ? `<span class="klink" data-open="${linkKind}:${t.link}">${t.link}</span>` : ""}
+    </div>
+  </div>`;
+}
+function renderBoard(boardId, mount, mini){
+  if(!mount) return;
+  const tasks = TASKS.filter(t => t.board === boardId);
+  mount.className = "board" + (mini ? " mini" : "");
+  mount.dataset.board = boardId;
+  mount.innerHTML = BOARD_COLS.map(col => {
+    const items = tasks.filter(t => t.col === col);
+    return `<div class="col" data-col="${col}">
+      <div class="col-head">
+        <h4>${col}</h4><span class="cn num">${items.length}</span>
+        <button class="col-add" data-add="${boardId}:${col}" aria-label="Add a task to ${col}">+</button>
+      </div>
+      <div class="col-body">${items.map(taskCard).join("")}</div>
+    </div>`;
+  }).join("");
+  wireBoard(mount);
+}
+function wireBoard(mount){
+  if(mount.dataset.wired) return;
+  mount.dataset.wired = "1";
+  mount.addEventListener("dragstart", e => {
+    const card = e.target.closest(".kcard"); if(!card) return;
+    e.dataTransfer.setData("text/plain", card.dataset.task);
+    e.dataTransfer.effectAllowed = "move";
+    card.classList.add("dragging");
+  });
+  mount.addEventListener("dragend", e => {
+    mount.querySelectorAll(".dragging").forEach(c => c.classList.remove("dragging"));
+    mount.querySelectorAll(".col.dragover").forEach(c => c.classList.remove("dragover"));
+  });
+  mount.addEventListener("dragover", e => {
+    const col = e.target.closest(".col"); if(!col) return;
+    e.preventDefault(); e.dataTransfer.dropEffect = "move";
+    mount.querySelectorAll(".col.dragover").forEach(c => { if(c !== col) c.classList.remove("dragover"); });
+    col.classList.add("dragover");
+  });
+  mount.addEventListener("drop", e => {
+    const col = e.target.closest(".col"); if(!col) return;
+    e.preventDefault();
+    const id = e.dataTransfer.getData("text/plain");
+    const t = TASKS.find(x => x.id === id);
+    if(t && t.col !== col.dataset.col){ t.col = col.dataset.col; refreshBoards(); toast(`${id} → ${col.dataset.col}`); }
+  });
+  mount.addEventListener("click", e => {
+    const mv = e.target.closest("[data-move]");
+    if(mv){
+      const [id, dir] = mv.dataset.move.split(":");
+      const t = TASKS.find(x => x.id === id); if(!t) return;
+      const ni = BOARD_COLS.indexOf(t.col) + (+dir);
+      if(ni >= 0 && ni < BOARD_COLS.length){ t.col = BOARD_COLS[ni]; refreshBoards(); }
+      return;
+    }
+    const ad = e.target.closest("[data-add]");
+    if(ad){
+      const [bid, col] = ad.dataset.add.split(":");
+      const nid = "T-" + (++taskSeq);
+      TASKS.push({ id:nid, board:bid, col, tag:"ops", who:"Kai R.", title:"New task" });
+      refreshBoards();
+      setTimeout(() => {
+        const el = document.querySelector(`[data-task-title="${nid}"]`);
+        if(el){
+          el.setAttribute("contenteditable", "true"); el.focus();
+          const r = document.createRange(); r.selectNodeContents(el);
+          const s = getSelection(); s.removeAllRanges(); s.addRange(r);
+        }
+      }, 0);
+      return;
+    }
+  });
+  mount.addEventListener("blur", e => {
+    const ti = e.target.closest("[data-task-title]");
+    if(!ti || ti.getAttribute("contenteditable") !== "true") return;
+    const t = TASKS.find(x => x.id === ti.dataset.taskTitle);
+    const v = ti.textContent.trim();
+    if(t){ if(!v) TASKS.splice(TASKS.indexOf(t), 1); else t.title = v; }
+    ti.removeAttribute("contenteditable");
+    refreshBoards();
+  }, true);
+  mount.addEventListener("keydown", e => {
+    const ti = e.target.closest("[data-task-title]");
+    if(ti && ti.getAttribute("contenteditable") === "true" && e.key === "Enter"){ e.preventDefault(); ti.blur(); }
+  });
+}
+function refreshBoards(){
+  RENDERED.overview = false; RENDERED.board = false;
+  if($("#overview").classList.contains("active")){ renderOverview(); RENDERED.overview = true; }
+  if($("#board").classList.contains("active")){ renderBoardView(); RENDERED.board = true; }
+}
+function renderBoardView(){
+  $("#board-tabs").innerHTML = BOARDS.map(b => {
+    const n = TASKS.filter(t => t.board === b.id).length;
+    return `<button class="board-tab" role="tab" aria-selected="${b.id===boardTab}" data-board-tab="${b.id}">${esc(b.name)} <span class="tct num">${n}</span></button>`;
+  }).join("");
+  renderBoard(boardTab, $("#board-mount"), false);
+}
+
+/* ================= RENDER: STATUS ================= */
+function stateWord(s){ return s==="operational"?"Operational":s==="degraded"?"Degraded":"Down"; }
+function renderStatus(){
+  const healthy = SERVICES.filter(s=>s.state==="operational").length;
+  $("#st-tiles").innerHTML =
+    tile("Operational", `${healthy}<small>/${SERVICES.length}</small>`, "Gateway, Ledger, Courier, Pulse", "var(--ok)") +
+    tile("Degraded", SERVICES.filter(s=>s.state==="degraded").length, "Aurora API — see INC-0034", "var(--warn)") +
+    tile("Down", "0", "no outages", "var(--ok)") +
+    tile("Fleet uptime (30d)", "99.95%", "weighted by traffic");
+
+  $("#st-cards").innerHTML = SERVICES.map(s => {
+    const cls = s.state==="operational"?"ok":s.state==="degraded"?"warn":"crit";
+    const sp = sparkPath(s.hist, 240, 34);
+    const col = cls==="ok"?"var(--ok)":cls==="warn"?"var(--warn)":"var(--crit)";
+    return `<div class="card" data-svc="${s.id}">
+      <div class="c-head">
+        <div>
+          <div class="c-name">${esc(s.name)}</div>
+          <div class="c-kind"><span class="env ${s.env}">${s.env}</span></div>
+        </div>
+        <div class="c-right"><span class="pill ${cls}"><span class="pdot"></span>${stateWord(s.state)}</span></div>
+      </div>
+      <div class="endpoint">${esc(s.endpoint)}</div>
+      <svg class="spark" viewBox="0 0 240 34" preserveAspectRatio="none" aria-hidden="true">
+        <path d="${sp.area}" fill="${col}" opacity=".12"/>
+        <path d="${sp.line}" fill="none" stroke="${col}" stroke-width="1.6"/>
+        <circle cx="${sp.last[0].toFixed(1)}" cy="${sp.last[1].toFixed(1)}" r="2.4" fill="${col}"/>
+      </svg>
+      <div class="statgrid">
+        <div><div class="sv" data-p50>${s.p50} ms</div><div class="sl">p50</div></div>
+        <div><div class="sv" data-p95>${s.p95} ms</div><div class="sl">p95</div></div>
+        <div><div class="sv">${s.uptime}</div><div class="sl">30d up</div></div>
+      </div>
+      <div class="c-foot"><span data-checked>checked just now</span><span class="sep">·</span><span>${esc(s.version)}</span>${s.rolling?'<span class="sep">·</span><span style="color:var(--accent)">rolling</span>':""}</div>
+    </div>`;
+  }).join("");
+}
+
+/* ================= DRAWER ================= */
+const drawer = $("#drawer"), scrim = $("#scrim");
+let lastFocus = null;
+function drawerHTML(kind, id){
+  return kind === "change" ? changeDetail(C[id])
+    : kind === "incident" ? incidentDetail(I[id])
+    : lifecycleRef();
+}
+function openDrawer(kind, id){
+  lastFocus = document.activeElement;
+  drawer.dataset.kind = kind;
+  drawer.dataset.entityId = id || "";
+  drawer.innerHTML = drawerHTML(kind, id);
+  drawer.classList.add("open"); scrim.classList.add("open");
+  drawer.setAttribute("aria-hidden","false");
+  drawer.querySelector(".dr-close").focus();
+}
+function closeDrawer(){
+  drawer.classList.remove("open"); scrim.classList.remove("open");
+  drawer.setAttribute("aria-hidden","true");
+  drawer.dataset.entityId = "";
+  if(lastFocus) lastFocus.focus();
+}
+// re-render the open drawer in place, keeping scroll position
+function rerenderDrawer(){
+  if(!drawer.classList.contains("open")) return;
+  const body = drawer.querySelector(".dr-body");
+  const sc = body ? body.scrollTop : 0;
+  drawer.innerHTML = drawerHTML(drawer.dataset.kind, drawer.dataset.entityId);
+  const nb = drawer.querySelector(".dr-body");
+  if(nb) nb.scrollTop = sc;
+}
+function rerenderChange(id){ if(drawer.dataset.entityId === id) rerenderDrawer(); }
+function invalidateViews(){
+  ["overview","changes","projects"].forEach(v => RENDERED[v] = false);
+  const active = $(".view.active") && $(".view.active").id;
+  if(active && RENDER_FN[active]){ RENDER_FN[active](); RENDERED[active] = true; }
+}
+function toggleGate(id, idx){
+  const c = C[id], stage = currentStage(c);
+  if(!stage) return;
+  const arr = GATE_STATE[id] || (GATE_STATE[id] = stage.gate.map(() => false));
+  arr[idx] = !arr[idx];
+  rerenderChange(id);
+}
+function toggleStep(key){
+  if(expandedSteps.has(key)) expandedSteps.delete(key); else expandedSteps.add(key);
+  const id = key.split(":")[0];
+  rerenderChange(id);
+}
+function advanceChange(id){
+  const c = C[id];
+  if(!canAdvance(c)) return;
+  const ni = LC_INDEX[c.state] + 1;
+  if(ni >= LIFECYCLE.length) return;
+  const nextKey = LIFECYCLE[ni].key;
+  c.state = nextKey;
+  GATE_STATE[id] = LIFECYCLE[ni].gate.map(() => false);
+  c.timeline = [{ time:"just now", txt:`Advanced to <b>${LIFECYCLE[ni].label}</b>` }, ...c.timeline];
+  rerenderChange(id); invalidateViews();
+  toast(`${id} → ${LIFECYCLE[ni].label}`);
+}
+function parkChange(id){
+  const c = C[id];
+  c.state = "Parked";
+  c.timeline = [{ time:"just now", txt:"Parked at the worth gate" }, ...c.timeline];
+  rerenderChange(id); invalidateViews();
+  toast(`${id} parked`);
+}
+function addAttachments(id, fileList){
+  const arr = ATTACH[id] || (ATTACH[id] = []);
+  [...fileList].forEach(f => {
+    const type = fileKind(f.name, f.type);
+    const item = { name:f.name, type, size:f.size, by:"Kai R.", at:"just now", real:true };
+    if(["image","video","audio"].includes(type)) item.url = URL.createObjectURL(f);
+    arr.push(item);
+  });
+  rerenderDrawer();
+  const n = fileList.length;
+  toast(`${n} file${n>1?"s":""} attached`);
+}
+function removeAttachment(id, i){
+  const a = (ATTACH[id] || [])[i];
+  if(a && a.url) URL.revokeObjectURL(a.url);
+  ATTACH[id].splice(i, 1);
+  rerenderDrawer();
+}
+scrim.addEventListener("click", closeDrawer);
+drawer.addEventListener("click", e => {
+  if(e.target.closest(".dr-close")){ closeDrawer(); return; }
+  const gt = e.target.closest("[data-gate]");
+  if(gt){ const [id, idx] = gt.dataset.gate.split(":"); toggleGate(id, +idx); return; }
+  const stp = e.target.closest("[data-step]");
+  if(stp){ toggleStep(stp.dataset.step); return; }
+  const adv = e.target.closest("[data-advance]");
+  if(adv){ advanceChange(adv.dataset.advance); return; }
+  const pk = e.target.closest("[data-park]");
+  if(pk){ parkChange(pk.dataset.park); return; }
+  const del = e.target.closest("[data-attdel]");
+  if(del){ const [id, i] = del.dataset.attdel.split(":"); removeAttachment(id, +i); return; }
+  const link = e.target.closest("[data-open]");
+  if(link){ const [k,i] = link.dataset.open.split(":"); openDrawer(k,i); }
+});
+drawer.addEventListener("change", e => {
+  const inp = e.target.closest("input[type=file][data-upload]");
+  if(inp && inp.files && inp.files.length){
+    const id = inp.dataset.upload, files = [...inp.files];
+    try{ inp.value = ""; }catch(_){}
+    addAttachments(id, files);
+  }
+});
+drawer.addEventListener("dragover", e => {
+  const dz = e.target.closest("[data-drop]"); if(!dz) return;
+  e.preventDefault(); dz.classList.add("drag");
+});
+drawer.addEventListener("dragleave", e => {
+  const dz = e.target.closest("[data-drop]"); if(dz && !dz.contains(e.relatedTarget)) dz.classList.remove("drag");
+});
+drawer.addEventListener("drop", e => {
+  const dz = e.target.closest("[data-drop]"); if(!dz) return;
+  e.preventDefault(); dz.classList.remove("drag");
+  if(e.dataTransfer.files && e.dataTransfer.files.length) addAttachments(dz.dataset.drop, e.dataTransfer.files);
+});
+
+function drHead(id, title, pills){
+  return `<div class="dr-head">
+    <div><div class="dr-id mono">${id}</div><h2>${esc(title)}</h2></div>
+    <button class="dr-close" aria-label="Close"><svg viewBox="0 0 20 20"><path d="M5 5l10 10M15 5L5 15"/></svg></button>
+  </div>`;
+}
+function worthBlock(c){
+  if(!c.worth){
+    return `<div class="dr-sec"><h4>Worth assessment</h4>
+      <p>Not assessed yet — this demand is still in the backlog, waiting to be triaged for value and effort.</p></div>`;
+  }
+  const w = c.worth, dc = DECISION_STYLE[w.decision] || "info";
+  return `<div class="dr-sec"><h4>Worth assessment</h4>
+    <p>${esc(w.value)}</p>
+    <dl class="kv" style="margin-top:10px">
+      <dt>Effort</dt><dd>${w.effort === "S" ? "Small" : w.effort === "M" ? "Medium" : "Large"}</dd>
+      <dt>Cost of delay</dt><dd>${esc(w.costOfDelay)}</dd>
+    </dl>
+    <div class="decision ${dc}">
+      <span class="d-dot"></span>
+      <span><b>${w.decision === "Pending" ? "Decision pending" : w.decision}</b>${w.decidedBy ? ` — ${esc(w.decidedBy)}${w.decided && w.decided!=="—" ? `, ${w.decided}` : ""}` : ""}</span>
+    </div>
+  </div>`;
+}
+function gateList(c, stage, interactive){
+  const bools = gateBools(c, stage.key);
+  return `<ul class="gate">${stage.gate.map((g,i) => `
+    <li class="${bools[i] ? "done" : ""}">
+      ${interactive
+        ? `<button class="gate-box" data-gate="${c.id}:${i}" aria-pressed="${bools[i]}" aria-label="${esc(g.t)}">${bools[i] ? checkSvgSm : ""}</button>`
+        : `<span class="gate-box static ${bools[i] ? "" : "hollow"}">${bools[i] ? checkSvgSm : ""}</span>`}
+      <span class="gate-t">${g.t}${g.hint ? `<span class="gate-hint">${g.hint}</span>` : ""}</span>
+    </li>`).join("")}</ul>`;
+}
+function stepRow(c, stage){
+  const st = stageStatus(c, stage.key);
+  const bools = gateBools(c, stage.key);
+  const total = stage.gate.length;
+  const doneN = bools.filter(Boolean).length;
+  const key = c.id + ":" + stage.key;
+  const open = st === "current" || expandedSteps.has(key);
+  const countTxt = !total ? "—"
+    : st === "upcoming" ? `${total} checks`
+    : `${doneN}/${total}`;
+  const head = `<div class="step-head">
+      <span class="step-label">${stage.label}</span>
+      <span class="ph-tag">${PHASE_LABEL[stage.phase]}</span>
+      <span class="step-count ${doneN===total && total && st!=="upcoming" ? "ok" : ""}">${countTxt}</span>
+    </div>
+    <div class="step-purpose">${stage.purpose}</div>`;
+  return `<div class="step ${st} ${open ? "open" : ""}" style="--c:${PHASE_COLOR[stage.phase]}">
+    <div class="step-rail"><span class="step-node">${st==="done" ? checkSvg : st==="current" ? '<span class="step-cur"></span>' : ""}</span></div>
+    <div class="step-main">
+      ${st === "current"
+        ? head
+        : `<button class="step-toggle" data-step="${key}" aria-expanded="${open}">${head}<span class="step-chev">${open ? "▾" : "▸"}</span></button>`}
+      ${open && total ? gateList(c, stage, st === "current") : ""}
+      ${st === "current" ? advanceRow(c) : ""}
+    </div>
+  </div>`;
+}
+function advanceRow(c){
+  const stage = currentStage(c);
+  if(!stage) return "";
+  const b = gateBools(c, c.state);
+  const ok = b.every(Boolean);
+  const next = LIFECYCLE[LC_INDEX[c.state] + 1];
+  const canPark = c.state === "Assessing";
+  return `<div class="advance-row">
+    <button class="btn primary" ${ok ? "" : "disabled"} data-advance="${c.id}">Advance to ${next ? next.label : "—"} &rarr;</button>
+    ${canPark ? `<button class="btn" data-park="${c.id}">Park</button>` : ""}
+    ${ok ? "" : `<span class="advance-hint">${b.filter(Boolean).length}/${stage.gate.length} gate checks to advance</span>`}
+  </div>`;
+}
+function stepper(c){
+  const cur = currentStage(c);
+  const heading = c.state === "Parked" ? "Parked at the worth gate"
+    : c.state === "Rolled Back" ? "Rolled back"
+    : c.state === "Closed" ? "Closed — all gates passed"
+    : `Now at: ${cur.label}`;
+  return `<div class="dr-sec"><h4>Lifecycle &mdash; ${heading}</h4>
+    <div class="stepper">${LIFECYCLE.map(s => stepRow(c, s)).join("")}</div></div>`;
+}
+
+function changeDetail(c){
+  return drHead(c.id, c.title) + `<div class="dr-body">
+    <div class="dr-pills">
+      ${statePill(c.state)}
+      <span class="pill info" style="text-transform:none">${c.type} change</span>
+      <span class="pill ${c.priority==="P1"?"crit":c.priority==="P2"?"warn":"info"}">${c.priority}</span>
+      <span class="pill ${c.risk==="High"?"crit":c.risk==="Medium"?"warn":"info"}">${c.risk} risk</span>
+      ${attachCount(c.id) ? `<span class="pill info clip-pill" style="text-transform:none">&#128206; ${attachCount(c.id)}</span>` : ""}
+      ${c.envs.map(e=>`<span class="env ${e}">${e}</span>`).join("")}
+    </div>
+
+    ${stepper(c)}
+
+    <div class="dr-sec"><h4>Demand</h4>
+      <dl class="kv">
+        <dt>Source</dt><dd>${c.demand.source}</dd>
+        <dt>Raised by</dt><dd>${esc(c.demand.raisedBy)}</dd>
+        <dt>Raised</dt><dd>${c.demand.raised}</dd>
+      </dl>
+      <p style="margin-top:10px">${esc(c.demand.problem)}</p>
+    </div>
+
+    ${worthBlock(c)}
+
+    ${c.summary?`<div class="dr-sec"><h4>The change</h4><p>${esc(c.summary)}</p></div>`:""}
+
+    <div class="dr-sec"><h4>Details</h4>
+      <dl class="kv">
+        <dt>Project</dt><dd>${esc(P[c.project])}</dd>
+        <dt>Owner</dt><dd>${c.owner}</dd>
+        <dt>Reviewer</dt><dd>${c.reviewer}</dd>
+        <dt>Window</dt><dd>${esc(c.window)}</dd>
+      </dl>
+    </div>
+
+    ${c.rollback?`<div class="dr-sec"><h4>Rollback plan</h4><p>${esc(c.rollback)}</p></div>`:""}
+    ${c.testPlan?`<div class="dr-sec"><h4>Test plan</h4><p>${esc(c.testPlan)}</p></div>`:""}
+
+    ${attachSection(c.id)}
+
+    ${c.linked?`<div class="dr-sec"><h4>Linked</h4><span class="linkchip" data-open="${c.linked.type}:${c.linked.id}">&harr; ${c.linked.id}</span></div>`:""}
+
+    <div class="dr-sec"><h4>Timeline</h4>
+      <ul class="tl">${c.timeline.map(e=>`<li><span class="tl-dot"></span><span class="tl-time">${e.time}</span><span class="tl-txt">${e.txt}</span></li>`).join("")}</ul>
+    </div>
+
+    ${c.pir?`<div class="dr-sec"><h4>Post-implementation review</h4>
+      <dl class="kv">
+        <dt>Value realised</dt><dd><span class="pill ${c.pir.valueRealized==="Yes"?"ok":c.pir.valueRealized==="Partial"?"warn":"crit"}">${c.pir.valueRealized}</span></dd>
+        ${c.pir.incidents.length?`<dt>Incidents caused</dt><dd>${c.pir.incidents.map(id=>`<span class="linkchip" data-open="incident:${id}">&harr; ${id}</span>`).join(" ")}</dd>`:`<dt>Incidents caused</dt><dd>None</dd>`}
+      </dl>
+      <p style="margin-top:10px">${esc(c.pir.lessons)}</p>
+    </div>`:""}
+
+    <div class="dr-pills">
+      <button class="btn" data-toast="Added a comment to ${c.id}">Comment</button>
+      <button class="btn" data-toast="Reassigned ${c.id}">Reassign</button>
+    </div>
+  </div>`;
+}
+function lifecycleRef(){
+  return drHead("PROCESS", "Change lifecycle & gates") + `<div class="dr-body">
+    <div class="dr-sec"><p>Every change moves through these stages in order. Each stage has an <b>exit gate</b> &mdash; a checklist that has to be complete before the change can advance. Standard changes have the Demand and Assessing gates pre-satisfied by their template; emergency changes deploy first and clear the Assessing and Review gates in a retrospective review.</p></div>
+    <div class="dr-sec"><div class="stepper ref">${LIFECYCLE.map((stage,i) => `
+      <div class="step open" style="--c:${PHASE_COLOR[stage.phase]}">
+        <div class="step-rail"><span class="step-node ref-num">${i+1}</span></div>
+        <div class="step-main">
+          <div class="step-head"><span class="step-label">${stage.label}</span><span class="ph-tag">${PHASE_LABEL[stage.phase]}</span></div>
+          <div class="step-purpose">${stage.purpose}</div>
+          ${stage.gate.length
+            ? `<ul class="gate">${stage.gate.map(g => `<li><span class="gate-box static hollow"></span><span class="gate-t">${g.t}${g.hint ? `<span class="gate-hint">${g.hint}</span>` : ""}</span></li>`).join("")}</ul>`
+            : `<div class="step-purpose" style="opacity:.55;margin-top:6px">Terminal state &mdash; no gate.</div>`}
+        </div>
+      </div>`).join("")}</div></div>
+  </div>`;
+}
+function incidentDetail(i){
+  const ss = INC_STATE_STYLE[i.state] || {cls:"info"};
+  return drHead(i.id, i.title) + `<div class="dr-body">
+    <div class="dr-pills">
+      <span class="sev-tag ${i.sev.toLowerCase()}">${i.sev}</span>
+      <span class="pill ${ss.cls}">${i.state}</span>
+      ${attachCount(i.id) ? `<span class="pill info clip-pill" style="text-transform:none">&#128206; ${attachCount(i.id)}</span>` : ""}
+    </div>
+    <div class="dr-sec"><h4>Impact</h4><p>${esc(i.impact)}</p></div>
+    <div class="dr-sec"><h4>Cause</h4><p>${esc(i.cause)}</p></div>
+    <div class="dr-sec"><h4>Details</h4>
+      <dl class="kv">
+        <dt>Service</dt><dd>${esc(i.service)}</dd>
+        <dt>Owner</dt><dd>${i.owner}</dd>
+        <dt>Opened</dt><dd>${esc(i.opened)}</dd>
+      </dl>
+    </div>
+    ${attachSection(i.id)}
+    ${i.linked?`<div class="dr-sec"><h4>Linked change</h4><span class="linkchip" data-open="${i.linked.type}:${i.linked.id}">&harr; ${i.linked.id}</span></div>`:""}
+    <div class="dr-sec"><h4>Timeline</h4>
+      <ul class="tl">${i.timeline.map(e=>`<li><span class="tl-dot"></span><span class="tl-time">${e.time}</span><span class="tl-txt">${e.txt}</span></li>`).join("")}</ul>
+    </div>
+    ${i.followup?`<div class="dr-sec"><h4>Follow-up</h4><p>${esc(i.followup)}</p></div>`:""}
+  </div>`;
+}
+
+/* ================= ROUTING ================= */
+const VIEWS = ["overview","changes","incidents","projects","board","status"];
+const TITLES = { overview:"Overview", changes:"Changes", incidents:"Incidents", projects:"Projects", board:"Boards", status:"Live Status" };
+const RENDER_FN = { overview:renderOverview, changes:renderChanges, incidents:renderIncidents, projects:renderProjects, board:renderBoardView, status:renderStatus };
+const RENDERED = {};
+function show(view){
+  if(!VIEWS.includes(view)) return;
+  $$(".view").forEach(v => v.classList.toggle("active", v.id===view));
+  $$(".nav button").forEach(b => b.setAttribute("aria-current", b.dataset.view===view ? "page":"false"));
+  $("#view-title").textContent = TITLES[view];
+  $("#view-crumb").textContent = "flightdeck / " + view;
+  if(!RENDERED[view]){ RENDER_FN[view](); RENDERED[view] = true; }
+  try{ localStorage.setItem("fd-view", view); }catch(e){}
+  window.scrollTo(0,0);
+}
+document.addEventListener("click", e => {
+  const nav = e.target.closest(".nav button");
+  if(nav){ show(nav.dataset.view); return; }
+  const bt = e.target.closest("[data-board-tab]");
+  if(bt){ boardTab = bt.dataset.boardTab; renderBoardView(); return; }
+  const gb = e.target.closest("[data-goboard]");
+  if(gb){ boardTab = gb.dataset.goboard; RENDERED.board = false; show("board"); return; }
+  const t = e.target.closest("[data-toast]");
+  if(t){ e.stopPropagation(); toast(t.dataset.toast); return; }
+  const op = e.target.closest("[data-open]");
+  if(op && !e.target.closest(".drawer")){ const [k,i] = op.dataset.open.split(":"); openDrawer(k,i); }
+});
+document.addEventListener("keydown", e => {
+  if(e.target.matches("input,textarea") || e.target.isContentEditable) return;
+  if(e.key==="Escape") closeDrawer();
+  if(e.key>="1" && e.key<=String(VIEWS.length)) show(VIEWS[+e.key-1]);
+  if(e.key.toLowerCase()==="t") toggleTheme();
+  if(e.key==="Enter"){ const r = e.target.closest("[data-open]"); if(r){ const [k,i]=r.dataset.open.split(":"); openDrawer(k,i); } }
+});
+
+/* ================= THEME ================= */
+const root = document.documentElement;
+function applyThemeIcon(){
+  const dark = root.getAttribute("data-theme")==="dark" ||
+    (!root.hasAttribute("data-theme") && matchMedia("(prefers-color-scheme:dark)").matches);
+  $("#theme-ico").innerHTML = dark
+    ? '<path d="M16 11.5A6 6 0 1 1 8.5 4a5 5 0 0 0 7.5 7.5Z"/>'
+    : '<circle cx="10" cy="10" r="4"/><path d="M10 1v2M10 17v2M1 10h2M17 10h2M3.5 3.5l1.5 1.5M15 15l1.5 1.5M16.5 3.5L15 5M5 15l-1.5 1.5"/>';
+}
+function toggleTheme(){
+  const cur = root.getAttribute("data-theme");
+  const sysDark = matchMedia("(prefers-color-scheme:dark)").matches;
+  const next = cur ? (cur==="dark"?"light":"dark") : (sysDark?"light":"dark");
+  root.setAttribute("data-theme", next);
+  try{ localStorage.setItem("fd-theme", next); }catch(e){}
+  applyThemeIcon();
+  toast("Theme: " + next);
+}
+$("#theme-btn").addEventListener("click", toggleTheme);
+try{
+  const savedT = localStorage.getItem("fd-theme");
+  if(savedT) root.setAttribute("data-theme", savedT);
+}catch(e){}
+matchMedia("(prefers-color-scheme:dark)").addEventListener("change", applyThemeIcon);
+
+/* ================= TOAST ================= */
+let toastTimer;
+function toast(msg){
+  const box = $("#toasts");
+  const el = h(`<div class="toast">${esc(msg)}</div>`);
+  box.appendChild(el);
+  setTimeout(()=>{ el.style.opacity="0"; el.style.transform="translateY(6px)"; el.style.transition="all .2s"; }, 2200);
+  setTimeout(()=> el.remove(), 2500);
+}
+
+/* ================= LIVE POLL ================= */
+let pollAge = 2;
+setInterval(() => {
+  pollAge += 3;
+  if(pollAge > 18) pollAge = 3;
+  $("#poll-txt").textContent = `checked ${pollAge}s ago`;
+  if(pollAge===3 && RENDERED.status && $("#status").classList.contains("active")){
+    // a fresh "poll": jitter latencies + advance sparklines
+    SERVICES.forEach(s => {
+      const drift = (Math.random()-.5) * (s.p95*0.12);
+      s.p95 = Math.max(s.p50+8, Math.round(s.p95 + drift));
+      s.p50 = Math.max(4, Math.round(s.p50 + (Math.random()-.5)*4));
+      s.hist = s.hist.slice(1).concat(s.p95);
+    });
+    RENDERED.status = false;
+    renderStatus(); RENDERED.status = true;
+  }
+  $$("#status [data-checked]").forEach(el => el.textContent = `checked ${pollAge}s ago`);
+}, 3000);
+
+/* ================= INIT ================= */
+applyThemeIcon();
+let start = "overview";
+try{ const v = localStorage.getItem("fd-view"); if(v && VIEWS.includes(v)) start = v; }catch(e){}
+show(start);
+
+})();
+</script>
