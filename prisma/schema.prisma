@@ -172,6 +172,8 @@ model Client {
   updatedAt DateTime      @updatedAt
   users     User[]
   invites   GuestInvite[]
+  demands   Demand[] // demands a guest of this client submitted (Task 5)
+  incidents Incident[] // incidents a guest of this client reported (Task 5)
 }
 
 model User {
@@ -188,6 +190,18 @@ model User {
   updatedAt    DateTime  @updatedAt
   sessions     Session[]
   accounts     Account[]
+
+  // Work-item back-relations (Task 5). Users are deactivated (isActive=false),
+  // never hard-deleted, so every work-item FK to User is Restrict by design — a
+  // user who owns or scored work cannot be removed.
+  submittedDemands  Demand[]                   @relation("DemandSubmitter")
+  reportedIncidents Incident[]                 @relation("IncidentReporter")
+  assignedIncidents Incident[]                 @relation("IncidentAssignee")
+  ownedChanges      Change[]                   @relation("ChangeOwner")
+  reviewedPirs      PostImplementationReview[] @relation("PirReviewer")
+  valueScored       WorthAssessment[]          @relation("WorthValueScorer")
+  effortScored      WorthAssessment[]          @relation("WorthEffortScorer")
+  decisionsMade     WorthAssessment[]          @relation("WorthDecider")
 
   @@index([clientId])
 }
@@ -260,4 +274,161 @@ model GuestInvite {
 model Counter {
   name  String @id
   value Int    @default(0)
+}
+
+// ---------------------------------------------------------------------------
+// Work items (spec 00 §2, specs/data-model.md §"Work items", specs 01/02/03)
+//
+// Controller rulings applied here:
+//  (b) ownership / assignment / scoring *ById fields are real @relation to User
+//      (not bare strings). Every such FK is Restrict — users are deactivated,
+//      never hard-deleted, so a user who touched work cannot be removed.
+//  (c) the Demand<->Change conversion is ONE foreign key. It lives on
+//      Change.originatingDemandId (@unique); Demand.convertedToChange is a
+//      pure back-relation named "DemandConversion". There is no stored
+//      Demand.convertedToChangeId column.
+//  (d) Demand 1:1 WorthAssessment (FK + @unique on WorthAssessment.demandId);
+//      Change 1:1 PostImplementationReview (FK + @unique on PIR.changeId);
+//      ChangeIncidentLink @@unique([changeId, incidentId, kind]).
+//  (e) Incident.overdue is a stored Boolean with NO column default (the caller
+//      always computes and passes it) + Incident.overdueNotifiedAt DateTime?.
+// ---------------------------------------------------------------------------
+
+model Demand {
+  id              String       @id @default(cuid())
+  ref             String       @unique // DEM-0001, monotonic per type
+  title           String
+  problem         String // plain-language need
+  source          DemandSource
+  status          DemandStatus
+  submittedById   String
+  submittedBy     User         @relation("DemandSubmitter", fields: [submittedById], references: [id])
+  clientId        String? // set when a guest submitted it
+  client          Client?      @relation(fields: [clientId], references: [id])
+  affectedService String? // free text (v1)
+  decidedAt       DateTime? // worth decision timestamp
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  // Ruling (d): 1:1 worth assessment. Ruling (c): the conversion link seen from
+  // the demand end — no stored column, navigates to the Change that holds the FK.
+  worth             WorthAssessment?
+  convertedToChange Change?          @relation("DemandConversion")
+
+  @@index([status])
+  @@index([clientId])
+  @@index([submittedById])
+}
+
+model WorthAssessment {
+  id                       String         @id @default(cuid())
+  demandId                 String         @unique
+  demand                   Demand         @relation(fields: [demandId], references: [id])
+  businessValue            String? // narrative from a BUSINESS_APPROVER
+  valueScore               Int? // 1–10, set by a BUSINESS_APPROVER
+  valueScoredById          String? // must hold BUSINESS_APPROVER
+  valueScoredBy            User?          @relation("WorthValueScorer", fields: [valueScoredById], references: [id], onDelete: Restrict)
+  effort                   Effort? // set by a TECHNICAL_APPROVER
+  feasibility              String? // narrative from a TECHNICAL_APPROVER
+  effortScoredById         String? // must hold TECHNICAL_APPROVER
+  effortScoredBy           User?          @relation("WorthEffortScorer", fields: [effortScoredById], references: [id], onDelete: Restrict)
+  costOfDelay              String? // any internal user
+  decision                 WorthDecision?
+  decidedById              String?
+  decidedBy                User?          @relation("WorthDecider", fields: [decidedById], references: [id], onDelete: Restrict)
+  decisionNote             String?
+  isSingleApproverOverride Boolean        @default(false) // true when decidedById == the demand's submittedById
+  overrideJustification    String? // app-enforced: required (min 20 chars) when isSingleApproverOverride
+  createdAt                DateTime       @default(now())
+  updatedAt                DateTime       @updatedAt
+}
+
+model Incident {
+  id                String         @id @default(cuid())
+  ref               String         @unique // INC-0001
+  title             String
+  description       String
+  affectedService   String // free text (v1)
+  impact            Level
+  urgency           Level
+  priority          Priority // derived from impact × urgency, stored
+  status            IncidentStatus
+  reportedById      String
+  reportedBy        User           @relation("IncidentReporter", fields: [reportedById], references: [id])
+  clientId          String? // set when a guest reported it
+  client            Client?        @relation(fields: [clientId], references: [id])
+  assigneeId        String? // internal user
+  assignee          User?          @relation("IncidentAssignee", fields: [assigneeId], references: [id], onDelete: Restrict)
+  dueAt             DateTime // derived from priority at creation
+  overdue           Boolean // Ruling (e): stored for indexing, NO default; recomputed on read + by the notify job
+  overdueNotifiedAt DateTime? // set once, the first time overdue flips true
+  resolution        String? // required to enter RESOLVED
+  resolvedAt        DateTime?
+  closedAt          DateTime?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  changeLinks ChangeIncidentLink[]
+
+  @@index([status])
+  @@index([clientId])
+  @@index([assigneeId])
+  @@index([priority])
+  @@index([overdue])
+}
+
+model Change {
+  id                  String       @id @default(cuid())
+  ref                 String       @unique // CHG-0001
+  title               String
+  changeType          ChangeType
+  rfc                 String? // the RFC body; required to leave ASSESSING
+  riskLevel           Level? // required to leave ASSESSING
+  impactAssessment    String? // required to leave ASSESSING
+  rollbackPlan        String? // required to leave ASSESSING (enforced at the transition, not the column)
+  testPlan            String?
+  status              ChangeStatus
+  ownerId             String
+  owner               User         @relation("ChangeOwner", fields: [ownerId], references: [id])
+  windowStart         DateTime? // required to enter SCHEDULED
+  windowEnd           DateTime? // required to enter SCHEDULED
+  originatingDemandId String?      @unique // Ruling (c): the single FK for the Demand<->Change conversion link
+  originatingDemand   Demand?      @relation("DemandConversion", fields: [originatingDemandId], references: [id])
+  implementedAt       DateTime?
+  closedAt            DateTime?
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+
+  pir           PostImplementationReview?
+  incidentLinks ChangeIncidentLink[]
+
+  @@index([status])
+  @@index([ownerId])
+}
+
+model PostImplementationReview {
+  id            String        @id @default(cuid())
+  changeId      String        @unique
+  change        Change        @relation(fields: [changeId], references: [id])
+  valueRealized ValueRealized // YES | PARTIAL | NO
+  lessons       String
+  reviewedById  String
+  reviewedBy    User          @relation("PirReviewer", fields: [reviewedById], references: [id])
+  reviewedAt    DateTime
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+}
+
+model ChangeIncidentLink {
+  id         String   @id @default(cuid())
+  changeId   String
+  change     Change   @relation(fields: [changeId], references: [id], onDelete: Cascade)
+  incidentId String
+  incident   Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  kind       LinkKind // CAUSED_BY | FIXES
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([changeId, incidentId, kind])
+  @@index([incidentId])
 }
