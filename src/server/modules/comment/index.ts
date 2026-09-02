@@ -21,10 +21,24 @@ import { serializeComment, type SerializedComment } from "./serialize";
  * `comment.created` audit event, and the optional `COMMENTED` notification all
  * commit or roll back together. `listComments` is a read, so it takes an
  * optional trailing `client` and defaults to the app singleton.
+ *
+ * The spec 00 §8 "notify the other party" duty is opt-in here: a notification
+ * fires only when the call site passes `notifyUserId`. This module does not
+ * work out who the other party is — the demand / incident / change service
+ * that owns the subject knows its reporter / owner / assignee and passes the
+ * id.
  */
 
 export type CommentSubjectType = "Demand" | "Incident" | "Change";
 
+/**
+ * Create a comment on `subjectId`, audit it, and optionally notify one user.
+ *
+ * Returns the **raw, unserialized `Comment` row**. A route handler MUST pass it
+ * through `serializeComment(actor, ...)` (or re-list via `listComments`) before
+ * it reaches a response — never `Response.json(await addComment(...))`, which
+ * would ship `authorId` and `visibleToClient` to a guest.
+ */
 export async function addComment(
   tx: PrismaTransaction,
   input: {

@@ -8,11 +8,23 @@ import { GET as readyzGET } from "@/app/api/readyz/route";
 import { checkReadiness } from "@/server/health/readiness";
 
 /**
- * Integration test — `checkReadiness()` and `readyzGET()` with no injected deps
- * run against the real `prisma` singleton and the migrated dev DB (docker up),
- * exactly like the other `api/**` route tests. The pending-migration and
- * db-down cases are driven through the `deps` seam instead.
+ * `checkReadiness()` and `readyzGET()` with no injected deps run for real —
+ * against the `prisma` singleton and the migrated dev DB (docker up), like the
+ * other `api/**` route tests. The pending-migration and db-down cases use the
+ * `deps` seam.
+ *
+ * `@/server/health/readiness` is partially mocked: `checkReadiness` is a spy
+ * that calls the real implementation by default, so the integration tests are
+ * unaffected, while the two route-mapping tests below stub a single call with
+ * `mockResolvedValueOnce` to exercise the 200 / 503 branch of the route in
+ * isolation (spec 08 §8 — "/readyz 503 when the DB is down and when a
+ * migration is pending").
  */
+vi.mock("@/server/health/readiness", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/server/health/readiness")>();
+  return { checkReadiness: vi.fn(actual.checkReadiness) };
+});
 
 const realMigrationsDir = path.join(process.cwd(), "prisma", "migrations");
 
@@ -66,4 +78,29 @@ test("checkReadiness reports db: error when the query rejects", async () => {
   const r = await checkReadiness({ db });
   expect(r.checks.db).toBe("error");
   expect(r.ok).toBe(false);
+});
+
+test("readyz maps ok:false to 503 unavailable, echoing the failing checks", async () => {
+  vi.mocked(checkReadiness).mockResolvedValueOnce({
+    ok: false,
+    checks: { db: "error", migrations: "ok" },
+  });
+
+  const res = await readyzGET();
+  expect(res.status).toBe(503);
+  expect(await res.json()).toEqual({
+    status: "unavailable",
+    checks: { db: "error", migrations: "ok" },
+  });
+});
+
+test("readyz maps ok:true to 200 ok", async () => {
+  vi.mocked(checkReadiness).mockResolvedValueOnce({
+    ok: true,
+    checks: { db: "ok", migrations: "ok" },
+  });
+
+  const res = await readyzGET();
+  expect(res.status).toBe(200);
+  expect((await res.json()).status).toBe("ok");
 });

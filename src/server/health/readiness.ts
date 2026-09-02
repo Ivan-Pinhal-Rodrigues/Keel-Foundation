@@ -49,6 +49,13 @@ async function checkDb(
   }
 }
 
+/**
+ * The check is one-directional. A migration folder with no applied row →
+ * `"pending"` (code shipped ahead of its migration — do not take traffic). An
+ * applied row with no folder → still `"ok"`: the DB is ahead of this build,
+ * which is the normal mid-rollout state, and an old pod that can still serve
+ * every request it receives should stay ready.
+ */
 async function checkMigrations(
   db: Pick<PrismaClient, "$queryRaw">,
   dir: string,

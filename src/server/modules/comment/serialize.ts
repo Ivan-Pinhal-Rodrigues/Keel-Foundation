@@ -10,6 +10,10 @@ import type { Actor } from "@/server/policy/actor";
  * identity (replaced by "Keel team") nor the flag nor any author id — only
  * guest display names, which for a guest are their own and their same-client
  * peers'. `listComments` has already filtered the rows a guest may see.
+ *
+ * The guest-facing author string is a GUEST allowlist, not an INTERNAL
+ * denylist: anything that is not explicitly a guest collapses to "Keel team",
+ * so a future `UserKind` can never accidentally leak an identity to a guest.
  */
 
 type CommentWithAuthor = Comment & {
@@ -43,7 +47,7 @@ export function serializeComment(
   }
 
   const author =
-    row.author.kind === "INTERNAL" ? "Keel team" : row.author.displayName;
+    row.author.kind === "GUEST" ? row.author.displayName : "Keel team";
   return {
     id: row.id,
     body: row.body,
