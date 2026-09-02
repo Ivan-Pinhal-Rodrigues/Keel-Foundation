@@ -1,0 +1,112 @@
+/* ============ TOKENS ============ */
+/*
+ * Ported verbatim from prototypes/flightdeck.html (the :root token blocks).
+ * Color values are unchanged. The three font-family tokens (--mono, --sans,
+ * --display) are supplied by next/font via src/app/fonts/index.ts, which sets
+ * them on <body> — they are intentionally absent here.
+ */
+:root {
+  --bg: #f4f5f8;
+  --surface: #ffffff;
+  --surface-2: #fafafc;
+  --raised: #ffffff;
+  --border: #e5e7ee;
+  --border-strong: #d3d8e3;
+  --text: #181b22;
+  --text-2: #586074;
+  --text-3: #8a92a4;
+  --accent: #2f53e6;
+  --accent-ink: #1c39ae;
+  --accent-wash: #e9edff;
+  --ok: #1c9b57;
+  --ok-wash: #e2f4eb;
+  --warn: #b0740b;
+  --warn-wash: #faefd9;
+  --crit: #cc3636;
+  --crit-wash: #fbe6e6;
+  --info: #4e5666;
+  --info-wash: #edeff3;
+  --dev: #7a56ee;
+  --dev-wash: #eee9fe;
+  --test: #0e8b9a;
+  --test-wash: #dcf1f3;
+  --staging: #b0740b;
+  --staging-wash: #faefd9;
+  --prod: #1c9b57;
+  --prod-wash: #e2f4eb;
+  --shadow-sm: 0 1px 2px rgba(20, 24, 33, 0.05);
+  --shadow:
+    0 1px 2px rgba(20, 24, 33, 0.06), 0 10px 26px -14px rgba(20, 24, 33, 0.2);
+  --shadow-lg: 0 24px 60px -20px rgba(20, 24, 33, 0.34);
+  --rail-w: 236px;
+  --radius: 11px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0d0f14;
+    --surface: #14171f;
+    --surface-2: #11141b;
+    --raised: #1a1e28;
+    --border: #252a36;
+    --border-strong: #343b4b;
+    --text: #e7e9ee;
+    --text-2: #9ba3b3;
+    --text-3: #69717f;
+    --accent: #6c8aff;
+    --accent-ink: #a8bcff;
+    --accent-wash: #1b2440;
+    --ok: #3fc77e;
+    --ok-wash: #122a1d;
+    --warn: #e0a63e;
+    --warn-wash: #2c2411;
+    --crit: #f16c6c;
+    --crit-wash: #301818;
+    --info: #8a93a4;
+    --info-wash: #1b1f29;
+    --dev: #9c86ff;
+    --dev-wash: #1e1a38;
+    --test: #3ec6d2;
+    --test-wash: #0e2a2d;
+    --staging: #e0a63e;
+    --staging-wash: #2c2411;
+    --prod: #3fc77e;
+    --prod-wash: #122a1d;
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow:
+      0 1px 2px rgba(0, 0, 0, 0.4), 0 14px 34px -16px rgba(0, 0, 0, 0.66);
+    --shadow-lg: 0 30px 70px -20px rgba(0, 0, 0, 0.72);
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0d0f14;
+  --surface: #14171f;
+  --surface-2: #11141b;
+  --raised: #1a1e28;
+  --border: #252a36;
+  --border-strong: #343b4b;
+  --text: #e7e9ee;
+  --text-2: #9ba3b3;
+  --text-3: #69717f;
+  --accent: #6c8aff;
+  --accent-ink: #a8bcff;
+  --accent-wash: #1b2440;
+  --ok: #3fc77e;
+  --ok-wash: #122a1d;
+  --warn: #e0a63e;
+  --warn-wash: #2c2411;
+  --crit: #f16c6c;
+  --crit-wash: #301818;
+  --info: #8a93a4;
+  --info-wash: #1b1f29;
+  --dev: #9c86ff;
+  --dev-wash: #1e1a38;
+  --test: #3ec6d2;
+  --test-wash: #0e2a2d;
+  --staging: #e0a63e;
+  --staging-wash: #2c2411;
+  --prod: #3fc77e;
+  --prod-wash: #122a1d;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 14px 34px -16px rgba(0, 0, 0, 0.66);
+  --shadow-lg: 0 30px 70px -20px rgba(0, 0, 0, 0.72);
+}
