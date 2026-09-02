@@ -1,0 +1,227 @@
+/*
+ * Ported from prototypes/flightdeck.html — the lifecycle stepper (~line 451):
+ *   .stepper .step .step-rail .step-node (.ck / .step-cur / .ref-num)
+ *   .step-main .step-head .step-label .step-count(.ok) .step-purpose
+ *   .gate / .gate li(.done) / .gate-box / .gate-t / .gate-hint
+ *   .advance-row / .advance-hint
+ * plus `.step.done` / `.step.current` / `.step.upcoming`.
+ * Rule bodies are copied with identical values.
+ *
+ * `--c` (the stage accent) is pinned to `--accent` on `.stepper`; the prototype
+ * threaded it per-stage from the ITIL phase colour, but the frozen contract has
+ * no tone field.
+ *
+ * `.advance` is the Advance button. The prototype styled it with `.btn.primary`
+ * (~line 234) + `.btn[disabled]` (~line 484); those declarations are folded in
+ * here. The dark-mode ink swap mirrors AppShell's `.navItem .badge`: on a dark
+ * OS `--accent` is light, so the label flips to near-black.
+ *
+ * Dropped as demo-only:
+ *  - `.step-toggle` / `.step-chev` — the prototype collapsed non-current stages
+ *    behind a toggle; the contract has no expand state, so every stage is open.
+ *  - `.gate-box.static.hollow` — the read-only view used a non-interactive
+ *    `<span>`; here the gate box is always a `<button>` (disabled when
+ *    read-only), and `.gateBox:disabled` below carries the muted look.
+ *  - `.btn[disabled]:hover` — recoloured a disabled button's border/text on
+ *    hover, a visually broken state.
+ */
+
+.stepper {
+  display: flex;
+  flex-direction: column;
+  --c: var(--accent);
+}
+.step {
+  display: grid;
+  grid-template-columns: 22px 1fr;
+  gap: 12px;
+  position: relative;
+  padding-bottom: 4px;
+}
+.stepRail {
+  display: flex;
+  justify-content: center;
+  position: relative;
+}
+.stepRail::before {
+  content: "";
+  position: absolute;
+  top: 20px;
+  bottom: -4px;
+  width: 2px;
+  background: var(--border);
+}
+.step:last-child .stepRail::before {
+  display: none;
+}
+.stepNode {
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  border: 2px solid var(--border-strong);
+  background: var(--surface);
+  display: grid;
+  place-items: center;
+  z-index: 1;
+  flex: none;
+  margin-top: 1px;
+}
+.stepNode .ck {
+  width: 11px;
+  height: 11px;
+  stroke: #fff;
+  stroke-width: 2.4;
+  fill: none;
+}
+.stepNode .stepCur {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--c);
+}
+.step.done .stepNode {
+  background: var(--c);
+  border-color: var(--c);
+}
+.step.current .stepNode {
+  border-color: var(--c);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--c) 22%, transparent);
+}
+.stepNode.refNum {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--c);
+  border-color: var(--c);
+}
+.stepMain {
+  padding-bottom: 16px;
+  min-width: 0;
+}
+.stepHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.stepLabel {
+  font-weight: 600;
+  font-size: 13px;
+}
+.step.upcoming .stepLabel {
+  color: var(--text-3);
+}
+.stepCount {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-3);
+  padding-right: 16px;
+}
+.stepCount.ok {
+  color: var(--ok);
+}
+.stepPurpose {
+  font-size: 12px;
+  color: var(--text-3);
+  margin-top: 2px;
+}
+.gate {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 10px;
+  list-style: none;
+}
+.gate li {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 5px 6px;
+  border-radius: 7px;
+}
+.gate li.done .gateT {
+  color: var(--text-3);
+}
+.gateBox {
+  width: 16px;
+  height: 16px;
+  border-radius: 5px;
+  border: 1.5px solid var(--border-strong);
+  flex: none;
+  margin-top: 1px;
+  display: grid;
+  place-items: center;
+  background: var(--surface);
+  transition: 0.12s;
+}
+.gateBox .ck {
+  width: 9px;
+  height: 9px;
+  stroke: #fff;
+  stroke-width: 3;
+  fill: none;
+}
+button.gateBox:hover {
+  border-color: var(--accent);
+}
+.gate li.done .gateBox {
+  background: var(--ok);
+  border-color: var(--ok);
+}
+.gateBox:disabled {
+  cursor: not-allowed;
+}
+.gate li:not(.done) .gateBox:disabled {
+  opacity: 0.5;
+}
+.gateT {
+  font-size: 12.5px;
+  color: var(--text);
+  line-height: 1.45;
+}
+.gateHint {
+  display: block;
+  font-size: 11px;
+  color: var(--text-3);
+  margin-top: 1px;
+}
+.advanceRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+.advanceHint {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-3);
+}
+.advance {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 11px;
+  border-radius: 7px;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #fff;
+  transition: 0.12s;
+}
+.advance:hover {
+  background: var(--accent-ink);
+  border-color: var(--accent-ink);
+}
+.advance:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+:root[data-theme="dark"] .advance,
+:root:not([data-theme="light"]) .advance {
+  color: #0d0f14;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) .advance {
+    color: #fff;
+  }
+}
