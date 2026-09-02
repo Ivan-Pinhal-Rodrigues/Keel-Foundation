@@ -71,6 +71,25 @@ export function requireNotSubmitter(
   }
 }
 
+/**
+ * Fail closed for a segregation-of-duties check. `requireNotSubmitter` is a
+ * no-op when the id it compares is absent, so an SoD rule must first assert that
+ * the subject actually carries the submitter / owner id. A subject passed
+ * without it cannot be verified → deny outright (`ForbiddenError`), never a
+ * silent allow. Asserts `id` non-null so the caller can hand it straight to
+ * `requireNotSubmitter`.
+ */
+export function requireSubjectId(
+  id: string | null | undefined,
+  field: string,
+): asserts id is string {
+  if (id == null) {
+    throw new ForbiddenError(
+      `cannot verify segregation of duties: ${field} not loaded on the subject`,
+    );
+  }
+}
+
 type DemandSubject = Extract<Subject, { type: "demand" }>;
 type IncidentSubject = Extract<Subject, { type: "incident" }>;
 type ChangeSubject = Extract<Subject, { type: "change" }>;

@@ -9,6 +9,7 @@
  *   demand.convert       BUSINESS_APPROVER | TECHNICAL_APPROVER
  *   demand.reject        BUSINESS_APPROVER | TECHNICAL_APPROVER
  */
+import { ForbiddenError } from "@/server/policy/errors";
 import type { Rule } from "@/server/policy/rule";
 import {
   asDemand,
@@ -16,6 +17,7 @@ import {
   requireHat,
   requireNotSubmitter,
   requireOwnClientOr404,
+  requireSubjectId,
 } from "@/server/policy/subjects/helpers";
 
 const WORTH_DECIDERS = ["BUSINESS_APPROVER", "TECHNICAL_APPROVER"] as const;
@@ -31,12 +33,13 @@ export const demandRules = {
   "demand.score.value": (actor) => requireHat(actor, "BUSINESS_APPROVER"),
   "demand.score.effort": (actor) => requireHat(actor, "TECHNICAL_APPROVER"),
   "demand.decide": (actor, subject) => {
+    // Fail closed: the SoD check below is meaningless without a demand carrying
+    // its submitter id, so deny rather than fall through to a silent allow.
+    const demand = asDemand(subject);
+    if (!demand) throw new ForbiddenError("demand subject required");
+    requireSubjectId(demand.submittedById, "submittedById");
     requireAnyHat(actor, WORTH_DECIDERS);
-    requireNotSubmitter(
-      actor,
-      asDemand(subject)?.submittedById,
-      "demand.decide.override",
-    );
+    requireNotSubmitter(actor, demand.submittedById, "demand.decide.override");
   },
   "demand.convert": (actor) => requireAnyHat(actor, WORTH_DECIDERS),
   "demand.reject": (actor) => requireAnyHat(actor, WORTH_DECIDERS),

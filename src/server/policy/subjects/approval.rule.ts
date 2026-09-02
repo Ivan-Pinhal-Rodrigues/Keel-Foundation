@@ -17,14 +17,20 @@ import {
   asChange,
   requireHat,
   requireNotSubmitter,
+  requireSubjectId,
 } from "@/server/policy/subjects/helpers";
 
 export const approvalRules = {
   "change.approve.technical": (actor, subject) => {
+    // Fail closed: without a change carrying its owner id the SoD check is a
+    // no-op, so deny rather than approve unverifiably.
+    const change = asChange(subject);
+    if (!change) throw new ForbiddenError("change subject required");
+    requireSubjectId(change.ownerId, "ownerId");
     requireHat(actor, "TECHNICAL_APPROVER");
     requireNotSubmitter(
       actor,
-      asChange(subject)?.ownerId,
+      change.ownerId,
       "change.approve.technical.override",
     );
   },
@@ -36,6 +42,8 @@ export const approvalRules = {
         "business approval applies only to a HIGH-risk change",
       );
     }
+    // Fail closed on the SoD check just like the technical gate.
+    requireSubjectId(change.ownerId, "ownerId");
     requireNotSubmitter(
       actor,
       change.ownerId,

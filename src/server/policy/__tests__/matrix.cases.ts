@@ -298,6 +298,21 @@ export const CASES: MatrixCase[] = [
     { type: "demand", id: "d1", submittedById: "u-biz" },
     "allow",
   ),
+  // fail closed: the SoD check cannot run without a demand + its submitter id
+  one(
+    "BIZ decides with a non-demand subject",
+    BIZ,
+    "demand.decide",
+    { type: "none" },
+    "deny",
+  ),
+  one(
+    "BIZ decides a demand whose submittedById is not loaded",
+    BIZ,
+    "demand.decide",
+    { type: "demand", id: "d1" },
+    "deny",
+  ),
 
   // === change.approve.technical — SoD: the owner may not approve ======
   one(
@@ -320,6 +335,14 @@ export const CASES: MatrixCase[] = [
     "change.approve.technical",
     { type: "change", id: "c-mine", ownerId: "u-all" },
     "segregation:change.approve.technical.override",
+  ),
+  // fail closed: no ownerId on the subject → cannot verify SoD → deny
+  one(
+    "TECH approves a change whose ownerId is not loaded",
+    TECH,
+    "change.approve.technical",
+    { type: "change", id: "c1", riskLevel: "HIGH" },
+    "deny",
   ),
 
   // === change.approve.business — risk gate, then SoD =================
@@ -356,6 +379,14 @@ export const CASES: MatrixCase[] = [
     BIZ,
     "change.approve.business",
     { type: "change", id: "c-mine", ownerId: "u-biz", riskLevel: "MEDIUM" },
+    "deny",
+  ),
+  // fail closed: HIGH risk but no ownerId → cannot verify SoD → deny
+  one(
+    "BIZ business-approves a HIGH-risk change whose ownerId is not loaded",
+    BIZ,
+    "change.approve.business",
+    { type: "change", id: "c1", riskLevel: "HIGH" },
     "deny",
   ),
 

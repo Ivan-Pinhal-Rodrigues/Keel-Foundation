@@ -44,7 +44,12 @@ const commentCreate: Rule = (actor, subject) => {
   }
 };
 
-const RULES: Record<Action, Rule> = {
+/**
+ * The dispatch table. `Record<Action, Rule>` is the compile-time exhaustiveness
+ * gate — a missing action fails `tsc`. Exported for `rules` structural tests
+ * (a typo'd key that `satisfies Record<string, Rule>` would not catch).
+ */
+export const RULES: Record<Action, Rule> = {
   ...demandRules,
   ...incidentRules,
   ...changeRules,
