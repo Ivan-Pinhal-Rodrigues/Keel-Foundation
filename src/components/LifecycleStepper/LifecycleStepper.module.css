@@ -20,8 +20,10 @@
  *  - `.step-toggle` / `.step-chev` — the prototype collapsed non-current stages
  *    behind a toggle; the contract has no expand state, so every stage is open.
  *  - `.gate-box.static.hollow` — the read-only view used a non-interactive
- *    `<span>`; here the gate box is always a `<button>` (disabled when
- *    read-only), and `.gateBox:disabled` below carries the muted look.
+ *    `<span>`; here the gate box is always a `<button>`, disabled unless its
+ *    stage is the current one (and never when `readOnly`). `.gateBox:disabled`
+ *    below carries the muted look for unchecked read-only items; checked ones
+ *    keep the green fill from `.gate li.done .gateBox`.
  *  - `.btn[disabled]:hover` — recoloured a disabled button's border/text on
  *    hover, a visually broken state.
  */

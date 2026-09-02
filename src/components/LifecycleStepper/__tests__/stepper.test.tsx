@@ -11,6 +11,9 @@ import styles from "@/components/LifecycleStepper/LifecycleStepper.module.css";
 
 afterEach(cleanup);
 
+const EM_DASH = "—";
+const ARROW = "→";
+
 const STAGES: Stage[] = [
   {
     key: "intake",
@@ -28,6 +31,19 @@ const STAGES: Stage[] = [
     ],
   },
   { key: "build", label: "Build", purpose: "Make it", gate: [] },
+];
+
+/** `assess` current, but with both of its gate items already checked. */
+const STAGES_ASSESS_COMPLETE: Stage[] = [
+  STAGES[0]!,
+  {
+    ...STAGES[1]!,
+    gate: [
+      { key: "b", label: "B", done: true },
+      { key: "c", label: "C", done: true },
+    ],
+  },
+  STAGES[2]!,
 ];
 
 function isDisabled(el: Element | null | undefined): boolean {
@@ -73,10 +89,42 @@ test("Advance is disabled until canAdvance, then calls onAdvance with the curren
   expect(onAdvance).toHaveBeenCalledWith("assess");
 });
 
-test("clicking a gate box calls onToggleGate with the stage key, gate key, and negated value", async () => {
+test("the Advance label names the next stage and ends with an arrow", () => {
+  renderStepper({ canAdvance: true });
+  const label = screen.getByRole("button", {
+    name: /advance to build/i,
+  }).textContent;
+  expect(label).toBe(`Advance to Build ${ARROW}`);
+});
+
+test("the Advance label is plain 'Advance' on the last stage", () => {
+  render(
+    <LifecycleStepper stages={STAGES} currentStageKey="build" canAdvance />,
+  );
+  expect(screen.getByRole("button", { name: /advance/i }).textContent).toBe(
+    "Advance",
+  );
+});
+
+test("clicking the current stage's gate box calls onToggleGate with the negated value", async () => {
   const user = userEvent.setup();
   const { onToggleGate } = renderStepper();
 
+  await user.click(screen.getByRole("checkbox", { name: "B" }));
+  expect(onToggleGate).toHaveBeenCalledWith("assess", "b", true);
+});
+
+test("only the current stage's gate boxes are interactive", async () => {
+  const user = userEvent.setup();
+  const { onToggleGate } = renderStepper();
+
+  // gate "A" belongs to `intake`, a past (done) stage
+  const pastBox = screen.getByRole("checkbox", { name: "A" });
+  expect(isDisabled(pastBox)).toBe(true);
+  await user.click(pastBox);
+  expect(onToggleGate).not.toHaveBeenCalled();
+
+  // the current stage's box still works
   await user.click(screen.getByRole("checkbox", { name: "B" }));
   expect(onToggleGate).toHaveBeenCalledWith("assess", "b", true);
 });
@@ -91,6 +139,15 @@ test("readOnly: no Advance button, and gate boxes are disabled and inert", async
   expect(isDisabled(box)).toBe(true);
   await user.click(box);
   expect(onToggleGate).not.toHaveBeenCalled();
+});
+
+test("the gate box is named via aria-labelledby, not a duplicate aria-label", () => {
+  renderStepper();
+  const box = screen.getByRole("checkbox", { name: "B" });
+  expect(box.hasAttribute("aria-label")).toBe(false);
+  const labelledBy = box.getAttribute("aria-labelledby");
+  expect(labelledBy).toBeTruthy();
+  expect(document.getElementById(labelledBy ?? "")?.textContent).toContain("B");
 });
 
 test("stage visual state is derived from currentStageKey and array order", () => {
@@ -109,28 +166,71 @@ test("the current stage step-count shows done/total and gains .ok only when all 
       .querySelector(`.${styles.current}`)
       ?.querySelector(`.${styles.stepCount}`);
 
-  expect(count()?.textContent).toContain("0/2");
+  expect(count()?.textContent).toBe("0/2");
   expect(count()?.matches(`.${styles.ok}`)).toBe(false);
 
   rerender(
     <LifecycleStepper
-      stages={[
-        STAGES[0]!,
-        {
-          ...STAGES[1]!,
-          gate: [
-            { key: "b", label: "B", done: true },
-            { key: "c", label: "C", done: true },
-          ],
-        },
-        STAGES[2]!,
-      ]}
+      stages={STAGES_ASSESS_COMPLETE}
       currentStageKey="assess"
       canAdvance
     />,
   );
-  expect(count()?.textContent).toContain("2/2");
+  expect(count()?.textContent).toBe("2/2");
   expect(count()?.matches(`.${styles.ok}`)).toBe(true);
+});
+
+test("a gateless stage shows an em dash, not 0/0", () => {
+  const { container } = renderStepper();
+  const buildCount = container
+    .querySelector(`.${styles.upcoming}`)
+    ?.querySelector(`.${styles.stepCount}`);
+  expect(buildCount?.textContent).toBe(EM_DASH);
+});
+
+test("an upcoming stage with gates shows the check count, not 0/N progress", () => {
+  const { container } = render(
+    <LifecycleStepper
+      stages={[
+        { key: "now", label: "Now", purpose: "here", gate: [] },
+        {
+          key: "later",
+          label: "Later",
+          purpose: "soon",
+          gate: [
+            { key: "p", label: "P", done: false },
+            { key: "q", label: "Q", done: false },
+          ],
+        },
+      ]}
+      currentStageKey="now"
+      canAdvance={false}
+    />,
+  );
+  const laterCount = container
+    .querySelector(`.${styles.upcoming}`)
+    ?.querySelector(`.${styles.stepCount}`);
+  expect(laterCount?.textContent).toBe("2 checks");
+  expect(laterCount?.matches(`.${styles.ok}`)).toBe(false);
+});
+
+test("the advance hint shows gate progress only while gates are incomplete", () => {
+  const { rerender } = renderStepper({ canAdvance: false });
+  expect(screen.getByText(`0/2 gate checks to advance`)).toBeTruthy();
+
+  // every gate checked, but the server still says canAdvance=false: the
+  // component cannot know why, so it shows no hint (not "2/2 checks to advance")
+  rerender(
+    <LifecycleStepper
+      stages={STAGES_ASSESS_COMPLETE}
+      currentStageKey="assess"
+      canAdvance={false}
+    />,
+  );
+  expect(screen.queryByText(/gate checks to advance/i)).toBeNull();
+  expect(isDisabled(screen.getByRole("button", { name: /advance/i }))).toBe(
+    true,
+  );
 });
 
 test("gate hint renders when present", () => {

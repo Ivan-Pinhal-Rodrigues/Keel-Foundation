@@ -1,5 +1,6 @@
 "use client";
 
+import { useId } from "react";
 import { cx } from "@/components/cx";
 import styles from "./LifecycleStepper.module.css";
 
@@ -45,7 +46,10 @@ function CheckIcon() {
  *
  * Stage state is derived purely from `currentStageKey` and array order:
  * earlier stages are done, the matching one is current, later ones upcoming.
- * `canAdvance` gates the Advance button and is taken verbatim from props.
+ * Only the current stage's gate boxes are interactive — checking a future
+ * stage's exit gate or re-opening a past one is not a sensible operation, so
+ * those render read-only. `canAdvance` gates the Advance button and is taken
+ * verbatim from props; the component never recomputes it from gate state.
  */
 export function LifecycleStepper({
   stages,
@@ -55,22 +59,35 @@ export function LifecycleStepper({
   onAdvance,
   readOnly,
 }: LifecycleStepperProps) {
+  const baseId = useId();
   const currentIndex = stages.findIndex((s) => s.key === currentStageKey);
   const nextStage = currentIndex >= 0 ? stages[currentIndex + 1] : undefined;
 
   return (
     <div className={styles.stepper}>
-      {stages.map((stage, index) => {
+      {stages.map((stage, stageIndex) => {
         const state: StageState =
-          currentIndex >= 0 && index < currentIndex
+          currentIndex >= 0 && stageIndex < currentIndex
             ? "done"
-            : index === currentIndex
+            : stageIndex === currentIndex
               ? "current"
               : "upcoming";
 
         const total = stage.gate.length;
         const doneCount = stage.gate.filter((item) => item.done).length;
-        const allDone = total > 0 && doneCount === total;
+        // Prototype rules (~line 1797): gateless -> em dash; an unstarted
+        // (upcoming) stage shows the check count, not 0/N progress; otherwise
+        // done/total. The all-done "ok" tint never applies to upcoming.
+        const countLabel =
+          total === 0
+            ? "—"
+            : state === "upcoming"
+              ? `${total} checks`
+              : `${doneCount}/${total}`;
+        const countIsOk =
+          total > 0 && doneCount === total && state !== "upcoming";
+
+        const gatesInteractive = state === "current" && !readOnly;
 
         return (
           <div key={stage.key} className={cx(styles.step, styles[state])}>
@@ -86,7 +103,7 @@ export function LifecycleStepper({
                 ) : state === "current" ? (
                   <span className={styles.stepCur} />
                 ) : (
-                  index + 1
+                  stageIndex + 1
                 )}
               </span>
             </div>
@@ -94,37 +111,44 @@ export function LifecycleStepper({
             <div className={styles.stepMain}>
               <div className={styles.stepHead}>
                 <span className={styles.stepLabel}>{stage.label}</span>
-                <span className={cx(styles.stepCount, allDone && styles.ok)}>
-                  {doneCount}/{total}
+                <span className={cx(styles.stepCount, countIsOk && styles.ok)}>
+                  {countLabel}
                 </span>
               </div>
               <div className={styles.stepPurpose}>{stage.purpose}</div>
 
               {total > 0 ? (
                 <ul className={styles.gate}>
-                  {stage.gate.map((item) => (
-                    <li key={item.key} className={cx(item.done && styles.done)}>
-                      <button
-                        type="button"
-                        className={styles.gateBox}
-                        role="checkbox"
-                        aria-checked={item.done}
-                        aria-label={item.label}
-                        disabled={readOnly}
-                        onClick={() =>
-                          onToggleGate?.(stage.key, item.key, !item.done)
-                        }
+                  {stage.gate.map((item, itemIndex) => {
+                    const labelId = `${baseId}-gate-${stageIndex}-${itemIndex}`;
+                    return (
+                      <li
+                        key={item.key}
+                        className={cx(item.done && styles.done)}
                       >
-                        {item.done ? <CheckIcon /> : null}
-                      </button>
-                      <span className={styles.gateT}>
-                        {item.label}
-                        {item.hint ? (
-                          <span className={styles.gateHint}>{item.hint}</span>
-                        ) : null}
-                      </span>
-                    </li>
-                  ))}
+                        <button
+                          type="button"
+                          className={styles.gateBox}
+                          role="checkbox"
+                          aria-checked={item.done}
+                          aria-labelledby={labelId}
+                          disabled={!gatesInteractive}
+                          onClick={() => {
+                            if (!gatesInteractive) return;
+                            onToggleGate?.(stage.key, item.key, !item.done);
+                          }}
+                        >
+                          {item.done ? <CheckIcon /> : null}
+                        </button>
+                        <span id={labelId} className={styles.gateT}>
+                          {item.label}
+                          {item.hint ? (
+                            <span className={styles.gateHint}>{item.hint}</span>
+                          ) : null}
+                        </span>
+                      </li>
+                    );
+                  })}
                 </ul>
               ) : null}
 
@@ -136,9 +160,13 @@ export function LifecycleStepper({
                     disabled={!canAdvance || !!readOnly}
                     onClick={() => onAdvance?.(currentStageKey)}
                   >
-                    {nextStage ? `Advance to ${nextStage.label}` : "Advance"}
+                    {nextStage ? `Advance to ${nextStage.label} →` : "Advance"}
                   </button>
-                  {!canAdvance ? (
+                  {/* Only a gate-count hint. `canAdvance` can be false for a
+                      non-gate reason (approval, window) with every gate checked
+                      — the component can't know that reason, so it says nothing
+                      once the gates are complete. */}
+                  {!canAdvance && doneCount < total ? (
                     <span className={styles.advanceHint}>
                       {doneCount}/{total} gate checks to advance
                     </span>

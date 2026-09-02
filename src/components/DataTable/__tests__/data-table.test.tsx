@@ -81,6 +81,29 @@ test("onRowClick fires with the exact row object on keyboard activation", async 
   expect(onRowClick).toHaveBeenCalledWith(ROWS[0]);
 });
 
+test("names the table via aria-label only when label is given", () => {
+  const { rerender } = render(
+    <DataTable
+      columns={COLUMNS}
+      rows={ROWS}
+      onRowClick={vi.fn()}
+      getRowId={(r) => r.id}
+    />,
+  );
+  expect(screen.getByRole("table").hasAttribute("aria-label")).toBe(false);
+
+  rerender(
+    <DataTable
+      columns={COLUMNS}
+      rows={ROWS}
+      onRowClick={vi.fn()}
+      getRowId={(r) => r.id}
+      label="Change register"
+    />,
+  );
+  expect(screen.getByRole("table", { name: "Change register" })).toBeTruthy();
+});
+
 test("applies a column width when given", () => {
   const cols: Column<Row>[] = [
     { key: "id", header: "ID", width: "80px", cell: (r) => r.id },

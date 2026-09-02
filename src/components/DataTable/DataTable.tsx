@@ -16,6 +16,8 @@ export type DataTableProps<R> = {
   rows: R[];
   onRowClick: (row: R) => void;
   getRowId: (row: R) => string;
+  /** Accessible name for the table (dashboards render several per page). */
+  label?: string;
 };
 
 /**
@@ -29,11 +31,12 @@ export function DataTable<R>({
   rows,
   onRowClick,
   getRowId,
+  label,
 }: DataTableProps<R>) {
   return (
     <div className={styles.tableWrap}>
       <div className={styles.tableScroll}>
-        <table className={styles.table}>
+        <table className={styles.table} aria-label={label}>
           <colgroup>
             {columns.map((col) => (
               <col
