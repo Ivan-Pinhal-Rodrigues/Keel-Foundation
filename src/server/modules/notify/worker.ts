@@ -11,12 +11,22 @@ import { nodemailerTransport, type Transport } from "./transport";
  *  1. `pg_try_advisory_xact_lock` so exactly one sender runs across replicas —
  *     the xact-scoped lock releases automatically at commit/rollback, no manual
  *     unlock, no lock leak if the tick throws.
- *  2. Claim the due `PENDING` rows `FOR UPDATE SKIP LOCKED`.
+ *  2. Claim the oldest due `PENDING` rows, `ORDER BY "createdAt" LIMIT
+ *     NOTIFY_BATCH` (default 20), `FOR UPDATE SKIP LOCKED`.
  *  3. Render + send each; on success mark `SENT`, on failure bump `attempts`
  *     with an exponential backoff, giving up (`FAILED`) at 6 attempts.
  *
  * `runOutboxOnce` never throws — a bad tick is logged and the accumulated
  * counts are returned.
+ *
+ * Trade-off: render + SMTP send + the row update all run inside the one
+ * interactive transaction, so its `timeout` is raised well past Prisma's 5s
+ * default to fit a full batch of slow real sends. If the SMTP server accepts a
+ * message and the tick then rolls back (lock loss, crash), that row re-sends
+ * next tick. When volume outgrows a single transaction the Phase 2 move is
+ * claim -> `SENDING` -> send -> `SENT` in short transactions (`OutboxStatus`
+ * has the `SENDING` value for exactly this); spec 05 §6's v1 loop has no
+ * `SENDING` state and it complicates the advisory-lock model, so not now.
  */
 
 /** Retry backoff: `min(2^attempts, 30)` minutes, in milliseconds. */
@@ -44,72 +54,80 @@ export async function runOutboxOnce(deps: {
 }): Promise<OutboxCounts> {
   const db = deps.db ?? prisma;
   const now = (deps.now ?? (() => new Date()))();
+  const batch = Number(process.env.NOTIFY_BATCH ?? 20);
   let counts: OutboxCounts = { sent: 0, failed: 0, deferred: 0 };
 
   try {
-    counts = await db.$transaction(async (t) => {
-      const lock = await t.$queryRaw<{ locked: boolean }[]>`
-        SELECT pg_try_advisory_xact_lock(hashtext('keel:outbox')) AS locked
-      `;
-      if (!lock[0]?.locked) return { sent: 0, failed: 0, deferred: 0 };
+    counts = await db.$transaction(
+      async (t) => {
+        const lock = await t.$queryRaw<{ locked: boolean }[]>`
+          SELECT pg_try_advisory_xact_lock(hashtext('keel:outbox')) AS locked
+        `;
+        if (!lock[0]?.locked) return { sent: 0, failed: 0, deferred: 0 };
 
-      const claimed = await t.$queryRaw<ClaimedRow[]>`
-        SELECT id, "toEmail", template, payload, attempts
-        FROM "EmailOutbox"
-        WHERE status = 'PENDING' AND "nextAttemptAt" <= ${now}
-        FOR UPDATE SKIP LOCKED
-      `;
+        const claimed = await t.$queryRaw<ClaimedRow[]>`
+          SELECT id, "toEmail", template, payload, attempts
+          FROM "EmailOutbox"
+          WHERE status = 'PENDING' AND "nextAttemptAt" <= ${now}
+          ORDER BY "createdAt"
+          LIMIT ${batch}::int
+          FOR UPDATE SKIP LOCKED
+        `;
 
-      let sent = 0;
-      let failed = 0;
+        let sent = 0;
+        let failed = 0;
 
-      for (const row of claimed) {
-        try {
-          const rendered = renderTemplate(
-            row.template,
-            (row.payload ?? {}) as Record<string, unknown>,
-          );
-          await deps.transport.send({
-            to: row.toEmail,
-            subject: rendered.subject,
-            text: rendered.text,
-            html: rendered.html,
-          });
-          await t.emailOutbox.update({
-            where: { id: row.id },
-            data: { status: "SENT", sentAt: now },
-          });
-          sent += 1;
-        } catch (err) {
-          const attempts = row.attempts + 1;
-          if (attempts >= 6) {
+        for (const row of claimed) {
+          try {
+            const rendered = renderTemplate(
+              row.template,
+              (row.payload ?? {}) as Record<string, unknown>,
+            );
+            await deps.transport.send({
+              to: row.toEmail,
+              subject: rendered.subject,
+              text: rendered.text,
+              html: rendered.html,
+            });
             await t.emailOutbox.update({
               where: { id: row.id },
-              data: { status: "FAILED", attempts, lastError: String(err) },
+              data: { status: "SENT", sentAt: now },
             });
-            failed += 1;
-          } else {
-            await t.emailOutbox.update({
-              where: { id: row.id },
-              data: {
-                status: "PENDING",
-                attempts,
-                lastError: String(err),
-                nextAttemptAt: new Date(now.getTime() + backoffMs(attempts)),
-              },
-            });
+            sent += 1;
+          } catch (err) {
+            const attempts = row.attempts + 1;
+            if (attempts >= 6) {
+              await t.emailOutbox.update({
+                where: { id: row.id },
+                data: { status: "FAILED", attempts, lastError: String(err) },
+              });
+              failed += 1;
+            } else {
+              await t.emailOutbox.update({
+                where: { id: row.id },
+                data: {
+                  status: "PENDING",
+                  attempts,
+                  lastError: String(err),
+                  nextAttemptAt: new Date(now.getTime() + backoffMs(attempts)),
+                },
+              });
+            }
           }
         }
-      }
 
-      const deferredRows = await t.$queryRaw<{ count: number }[]>`
-        SELECT count(*)::int AS count
-        FROM "EmailOutbox"
-        WHERE status = 'PENDING' AND "nextAttemptAt" > ${now}
-      `;
+        const deferredRows = await t.$queryRaw<{ count: number }[]>`
+          SELECT count(*)::int AS count
+          FROM "EmailOutbox"
+          WHERE status = 'PENDING' AND "nextAttemptAt" > ${now}
+        `;
 
-      return { sent, failed, deferred: deferredRows[0]?.count ?? 0 };
-    });
+        return { sent, failed, deferred: deferredRows[0]?.count ?? 0 };
+      },
+      // Render + SMTP send + row update run inside this one interactive
+      // transaction, so raise the 5s default well past a full slow batch.
+      { timeout: 30_000 },
+    );
   } catch (err) {
     logger.error({ err }, "outbox tick failed");
   }
