@@ -47,7 +47,7 @@ Multi-stage:
 2. `build` — `pnpm build` (Next standalone output), `prisma generate`.
 3. `runner` — `node:22-slim`, non-root `node` user, copy `.next/standalone`,
    `.next/static`, `public`, `prisma/`. `CMD ["node", "server.js"]`. No dev
-   deps, no source, no secrets. `HEALTHCHECK` hits `/healthz`.
+   deps, no source, no secrets. `HEALTHCHECK` hits `/api/healthz`.
 
 Image target size noted in the spec as a soft budget; not gated.
 
@@ -60,7 +60,7 @@ Templates:
 - `deployment.yaml` — the app; `replicaCount` from values; `envFrom` a
   `Secret` **referenced by name** (`existingSecret`, default `keel-secrets`) +
   a `ConfigMap` for non-secret config (`APP_URL`, `NOTIFY_POLL_MS`, log level);
-  liveness `/healthz`, readiness `/readyz`; resources from values.
+  liveness `/api/healthz`, readiness `/api/readyz`; resources from values.
 - `service.yaml` — ClusterIP.
 - `ingress.yaml` — toggled by `ingress.enabled`; `className` and `host` from
   values (placeholders in both value files); annotations pass-through map.
@@ -80,15 +80,15 @@ Values:
 
 The chart contains **no secret values**. `helm-docs`-style README in the chart
 dir listing every value and the required keys of `keel-secrets`
-(`DATABASE_URL`, `MIGRATE_DATABASE_URL`, `AUTH_SECRET`, `SMTP_URL`).
+(`DATABASE_URL`, `MIGRATE_DATABASE_URL`, `SMTP_URL`).
 
 ---
 
 ## 5. Health, readiness, metrics
 
-- `GET /healthz` — process is up. No dependency checks. Always 200 unless the
+- `GET /api/healthz` — process is up. No dependency checks. Always 200 unless the
   process is broken.
-- `GET /readyz` — `SELECT 1` against the DB **and** a check that
+- `GET /api/readyz` — `SELECT 1` against the DB **and** a check that
   `prisma migrate status` reports no pending migrations. 200 / 503 with a JSON
   body naming the failing check.
 - `GET /metrics` — Prometheus text: default process metrics + a few app
@@ -142,16 +142,16 @@ failure:
 7. `e2e` — `playwright test` against the built image + compose DB (seeded).
 8. `helm` — `helm lint` + `helm template` schema check.
 9. `kind` — create a `kind` cluster, load the image, `helm install`, wait for
-   the migrate hook + rollout, `curl /readyz` (expect 200), run a scripted API
+   the migrate hook + rollout, `curl /api/readyz` (expect 200), run a scripted API
    smoke (login → create a demand → read it back), `helm uninstall`.
 
 ---
 
 ## 8. Test plan (RED first where applicable)
 
-- `/healthz` 200 always; `/readyz` 503 when the DB is down and when a migration
-  is pending, 200 when healthy (integration test toggling a fake pending
-  migration).
+- `/api/healthz` 200 always; `/api/readyz` 503 when the DB is down and when a
+  migration is pending, 200 when healthy (integration test toggling a fake
+  pending migration).
 - `/metrics` exposes the named counters and they move (login increments
   `keel_auth_logins_total`).
 - Seed is idempotent: run twice, row counts stable, no unique-constraint error.

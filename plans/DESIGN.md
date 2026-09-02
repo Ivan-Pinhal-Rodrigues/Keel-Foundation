@@ -443,7 +443,7 @@ Cross-module writes are deferred to Phase 2 wiring.
 ## 8. Interface contracts (frozen before Phase 1)
 
 ```ts
-// src/server/policy/authorize.ts
+// src/server/policy/actor.ts
 export type Actor = {
   id: string;
   kind: "INTERNAL" | "GUEST";
@@ -469,14 +469,13 @@ export function scopeToClient(actor: Actor): { clientId: string } | Record<strin
 ```
 
 ```ts
-// src/server/audit/writeAudit.ts
+// src/server/audit/write.ts
 export type AuditInput = {
-  actorId: string;
+  actorId: string | null;
   action: string;            // "demand.create", "change.approve.technical", ...
   subjectType: string;
   subjectId: string;
   payload?: Record<string, unknown>;
-  requestId: string;
 };
 export function writeAudit(tx: PrismaTransaction, input: AuditInput): Promise<void>;
 ```
@@ -521,7 +520,7 @@ export function emitNotification(tx: PrismaTransaction, spec: NotificationSpec):
   incident lifecycle with the overdue flag.
 - **CI**, merge blocked on any failure:
   `lint → typecheck → unit+integration → build → e2e → helm lint → kind (install
-  chart + migration job + /readyz + API smoke)`.
+  chart + migration job + /api/readyz + API smoke)`.
   Every migration is checked `up → down → up` on a scratch database.
 
 ---
@@ -540,8 +539,8 @@ export function emitNotification(tx: PrismaTransaction, spec: NotificationSpec):
     (`existingSecret: keel-secrets`) — the chart never contains secret values.
   - Migration Job as a `pre-install` / `pre-upgrade` hook, run as the migration
     DB role.
-  - `/healthz` (liveness), `/readyz` (DB reachable + migrations applied),
-    `/metrics` (process + a few counters).
+  - `/api/healthz` (liveness), `/api/readyz` (DB reachable + migrations
+    applied), `/metrics` (process + a few counters).
   - `values-staging.yaml` + `values-prod.yaml` — replica count, resources,
     ingress host, log level. HPA present, disabled by default.
 - **Not in v1** — ArgoCD / Flux, metrics dashboards, real cluster targeting,

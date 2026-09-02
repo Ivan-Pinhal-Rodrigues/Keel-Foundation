@@ -45,6 +45,18 @@
   --rail-w: 236px;
   --radius: 11px;
 }
+
+/* Ported from prototypes/flightdeck.html (RESPONSIVE section): below 920px the
+   AppShell rail becomes a bottom bar, so the rail-width token collapses to 0 for
+   any layout that offsets by var(--rail-w). The AppShell's own grid switch lives
+   in AppShell.module.css; this global :root override cannot (a CSS module rejects
+   a non-pure selector). */
+@media (max-width: 920px) {
+  :root {
+    --rail-w: 0px;
+  }
+}
+
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;

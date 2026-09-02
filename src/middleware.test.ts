@@ -1,6 +1,10 @@
-import { expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { middleware } from "@/middleware";
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -62,4 +66,21 @@ test("every response carries an x-request-id (a fresh UUID)", () => {
   for (const id of ids) expect(id).toMatch(UUID_RE);
   // Minted per request, not reused.
   expect(new Set(ids).size).toBe(ids.length);
+});
+
+test("in production a /dev/* request is a bare 404, before any auth handling", () => {
+  vi.stubEnv("NODE_ENV", "production");
+  const res = run("/dev/components");
+  expect(res.status).toBe(404);
+  // Not a redirect to /login, and no 401 JSON — the route simply does not exist.
+  expect(res.headers.get("location")).toBeNull();
+  // Still correlated for logs.
+  expect(res.headers.get("x-request-id")).toMatch(UUID_RE);
+});
+
+test("outside production /dev/* is public — next() with no auth redirect", () => {
+  vi.stubEnv("NODE_ENV", "development");
+  const res = run("/dev/components");
+  expect(res.status).toBe(200);
+  expect(res.headers.get("location")).toBeNull();
 });

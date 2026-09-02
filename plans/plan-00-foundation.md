@@ -231,7 +231,7 @@ Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: `postgres` on `localhost:5432` with roles `keel_app` / `keel_migrate`; `mailpit` SMTP on `localhost:1025`, UI on `localhost:8025`. Env vars `DATABASE_URL`, `MIGRATE_DATABASE_URL`, `SMTP_URL`, `AUTH_SECRET`, `APP_URL`, `NOTIFY_POLL_MS`, `LOG_LEVEL`.
+- Produces: `postgres` on `localhost:5432` with roles `keel_app` / `keel_migrate`; `mailpit` SMTP on `localhost:1025`, UI on `localhost:8025`. Env vars `DATABASE_URL`, `MIGRATE_DATABASE_URL`, `SMTP_URL`, `APP_URL`, `NOTIFY_POLL_MS`, `LOG_LEVEL`.
 
 - [ ] **Step 1: Write the Postgres init script**
 
@@ -279,7 +279,6 @@ Note: `POSTGRES_USER` is set to `keel_migrate` so the init script's `CREATE ROLE
 DATABASE_URL="postgresql://keel_app:keel_app@localhost:5432/keel?schema=public"
 MIGRATE_DATABASE_URL="postgresql://keel_migrate:keel_migrate@localhost:5432/keel?schema=public"
 SMTP_URL="smtp://localhost:1025"
-AUTH_SECRET="dev-only-change-me-32-chars-minimum-abc"
 APP_URL="http://localhost:3000"
 NOTIFY_POLL_MS="5000"
 LOG_LEVEL="debug"
@@ -1032,9 +1031,15 @@ Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 
 ## Task 12: Auth.js configuration
 
+> Historical. Auth.js v5 was abandoned during Phase 0 — it cannot issue a
+> database session for a credentials sign-in. Purpose-built auth
+> (`verifyCredentials` / `createSession` / `login`) replaced it; there is no
+> `AUTH_SECRET` (session tokens are random + sha256-hashed at rest). See
+> `specs/00-foundation.md` §3.2.
+
 **Files:**
 - Create: `src/server/auth/config.ts`, `src/app/api/auth/[...nextauth]/route.ts`, `src/types/next-auth.d.ts`
-- Modify: `.env` (`AUTH_SECRET`), `prisma/schema.prisma` if the adapter needs `VerificationToken` (add it)
+- Modify: `.env` (`AUTH_SECRET` — removed, see specs/00-foundation.md §3.2), `prisma/schema.prisma` if the adapter needs `VerificationToken` (add it)
 - Test: `src/server/auth/__tests__/config.test.ts`
 
 **Interfaces:**

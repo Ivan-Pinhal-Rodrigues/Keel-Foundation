@@ -22,11 +22,25 @@ const PUBLIC = [
   /^\/api\/guest-invites\/[^/]+\/redeem$/,
   /^\/login$/,
   /^\/portal\/invite\//,
+  // `/dev/*` (the component gallery) is an unauthenticated build-time surface in
+  // local dev and test. In production it does not exist — the guard in
+  // `middleware()` 404s it before this list is consulted — so the entry is added
+  // only outside production, never as a public route in a prod build.
+  ...(process.env.NODE_ENV !== "production" ? [/^\/dev\//] : []),
 ];
 
 export function middleware(req: NextRequest): NextResponse {
   const { pathname } = req.nextUrl;
   const requestId = crypto.randomUUID();
+
+  // `/dev/*` is dev/test-only. In production it must look unrouted: a bare 404,
+  // returned before the PUBLIC / cookie check, still carrying `x-request-id` so
+  // logs correlate.
+  if (process.env.NODE_ENV === "production" && pathname.startsWith("/dev/")) {
+    const notFound = new NextResponse("Not Found", { status: 404 });
+    notFound.headers.set("x-request-id", requestId);
+    return notFound;
+  }
 
   const allowed =
     PUBLIC.some((re) => re.test(pathname)) || req.cookies.has(SESSION_COOKIE);
