@@ -186,6 +186,11 @@
 }
 
 @media (max-width: 920px) {
+  /* Prototype override: the rail is a bottom bar here, so the rail-width token
+     collapses to 0 for anything downstream that reads var(--rail-w). */
+  :global(:root) {
+    --rail-w: 0px;
+  }
   .app {
     grid-template-columns: 1fr;
   }

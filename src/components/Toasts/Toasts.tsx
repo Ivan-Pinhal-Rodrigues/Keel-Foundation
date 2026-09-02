@@ -6,7 +6,8 @@ import styles from "./Toasts.module.css";
 
 type ToastEntry = { id: number; message: string };
 
-const TTL_MS = 4000;
+// Matches the prototype's toast lifetime (fade at 2200ms, remove at 2500ms).
+const TTL_MS = 2500;
 
 // Module-level store so `toast()` can be imported and called from anywhere —
 // route handlers' client callbacks, event handlers, other components — without
@@ -35,7 +36,7 @@ function getServerSnapshot(): ToastEntry[] {
   return EMPTY;
 }
 
-/** Show a transient message. Auto-dismisses after ~4s. */
+/** Show a transient message. Auto-dismisses after ~2.5s. */
 export function toast(message: string): void {
   const id = nextId++;
   entries = [...entries, { id, message }];

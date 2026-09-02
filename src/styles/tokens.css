@@ -4,8 +4,12 @@
  * Color values are unchanged. The three font-family tokens (--mono, --sans,
  * --display) are supplied by next/font via src/app/fonts/index.ts, which sets
  * them on <body> — they are intentionally absent here.
+ *
+ * `color-scheme` is not a prototype token; it carries over from the deleted
+ * src/app/globals.css so native controls / scrollbars follow the theme.
  */
 :root {
+  color-scheme: light dark;
   --bg: #f4f5f8;
   --surface: #ffffff;
   --surface-2: #fafafc;
@@ -43,6 +47,7 @@
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
+    color-scheme: dark;
     --bg: #0d0f14;
     --surface: #14171f;
     --surface-2: #11141b;
@@ -78,6 +83,7 @@
   }
 }
 :root[data-theme="dark"] {
+  color-scheme: dark;
   --bg: #0d0f14;
   --surface: #14171f;
   --surface-2: #11141b;
@@ -109,4 +115,11 @@
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 14px 34px -16px rgba(0, 0, 0, 0.66);
   --shadow-lg: 0 30px 70px -20px rgba(0, 0, 0, 0.72);
+}
+
+/* Explicit light choice: force light native controls even on a dark OS. The
+   color tokens are the bare :root defaults (the dark @media block excludes
+   [data-theme="light"]); only color-scheme needs restating here. */
+:root[data-theme="light"] {
+  color-scheme: light;
 }

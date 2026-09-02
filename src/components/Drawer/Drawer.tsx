@@ -33,11 +33,10 @@ export function Drawer({
     >
       <Dialog.Portal>
         <Dialog.Overlay className={styles.scrim} data-testid="drawer-scrim" />
-        <Dialog.Content
-          className={styles.drawer}
-          aria-label={idLabel}
-          aria-describedby={undefined}
-        >
+        {/* Accessible name comes from Dialog.Title (Radix wires aria-labelledby);
+            aria-describedby={undefined} silences Radix's optional-description
+            warning since this drawer has no description element. */}
+        <Dialog.Content className={styles.drawer} aria-describedby={undefined}>
           <div className={styles.drHead}>
             <div>
               <div className={styles.drId}>{idLabel}</div>

@@ -24,15 +24,22 @@ test("toggle flips data-theme on the document element", async () => {
   expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
 });
 
-test("a second click switches to system and removes data-theme", async () => {
+test("a second click advances the label to system and removes data-theme", async () => {
   render(
     <ThemeProvider>
       <ThemeToggle />
     </ThemeProvider>,
   );
   const button = screen.getByRole("button", { name: /theme/i });
+
   await userEvent.click(button); // light -> dark
+  expect(button.textContent).toMatch(/dark/i);
+  expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+  expect(document.cookie).toContain("keel-theme=dark");
+
   await userEvent.click(button); // dark -> system
+  expect(button.textContent).toMatch(/system/i);
+  expect(button.textContent).not.toMatch(/dark/i);
   expect(document.documentElement.hasAttribute("data-theme")).toBe(false);
   expect(document.cookie).not.toContain("keel-theme=");
 });

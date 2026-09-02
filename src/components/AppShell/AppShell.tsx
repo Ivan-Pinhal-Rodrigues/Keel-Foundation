@@ -1,6 +1,3 @@
-"use client";
-
-import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import styles from "./AppShell.module.css";
 
@@ -20,25 +17,10 @@ export type AppShellProps = {
   children: ReactNode;
 };
 
-const MOBILE_QUERY = "(max-width: 920px)";
-
-/**
- * Tracks the prototype's `@media (max-width: 920px)` breakpoint. The visual
- * switch to the bottom-bar layout is done in CSS; this only exposes the state
- * to JS (and to tests) via `data-mobile` on the shell root.
- */
-function useIsMobile(): boolean {
-  const [isMobile, setIsMobile] = useState(false);
-  useEffect(() => {
-    if (typeof window === "undefined" || !window.matchMedia) return;
-    const mq = window.matchMedia(MOBILE_QUERY);
-    const sync = () => setIsMobile(mq.matches);
-    sync();
-    mq.addEventListener?.("change", sync);
-    return () => mq.removeEventListener?.("change", sync);
-  }, []);
-  return isMobile;
-}
+// Pure layout — no state, no effects, no handlers — so it stays a server
+// component. The bottom-bar layout below 920px is entirely the
+// `@media (max-width: 920px)` block in AppShell.module.css, matching the
+// prototype, which uses no JavaScript for it.
 
 function initials(name: string): string {
   return (
@@ -58,9 +40,8 @@ export function AppShell({
   topbar,
   children,
 }: AppShellProps) {
-  const isMobile = useIsMobile();
   return (
-    <div className={styles.app} data-mobile={isMobile ? "true" : undefined}>
+    <div className={styles.app}>
       <aside className={styles.rail}>
         <div className={styles.brand}>
           <span className={styles.glyph} aria-hidden="true">

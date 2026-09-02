@@ -1,9 +1,27 @@
 /** @vitest-environment jsdom */
-import { afterEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { ToastProvider, toast } from "@/components/Toasts";
 
-afterEach(cleanup);
+// `toast()` is backed by a module-level store, so every test must leave it
+// empty. Fake timers file-wide + draining any pending auto-dismiss in afterEach
+// keeps the suite order-independent.
+beforeEach(() => {
+  vi.useFakeTimers();
+});
+
+afterEach(() => {
+  act(() => {
+    vi.runOnlyPendingTimers();
+  });
+  cleanup();
+  vi.useRealTimers();
+});
+
+test("the live region starts empty", () => {
+  render(<ToastProvider />);
+  expect(screen.getByRole("status").textContent).toBe("");
+});
 
 test("toast() shows a message in a polite status live region", () => {
   render(<ToastProvider />);
@@ -28,19 +46,20 @@ test("toast() works when called from a provider that wraps children", () => {
   expect(screen.getByText("hello")).toBeTruthy();
 });
 
-test("a toast auto-dismisses after ~4s", () => {
-  vi.useFakeTimers();
-  try {
-    render(<ToastProvider />);
-    act(() => {
-      toast("ephemeral");
-    });
-    expect(screen.getByText("ephemeral")).toBeTruthy();
-    act(() => {
-      vi.advanceTimersByTime(4100);
-    });
-    expect(screen.queryByText("ephemeral")).toBeNull();
-  } finally {
-    vi.useRealTimers();
-  }
+test("a toast auto-dismisses after its ~2.5s lifetime", () => {
+  render(<ToastProvider />);
+  act(() => {
+    toast("ephemeral");
+  });
+  expect(screen.getByText("ephemeral")).toBeTruthy();
+
+  act(() => {
+    vi.advanceTimersByTime(2400);
+  });
+  expect(screen.getByText("ephemeral")).toBeTruthy(); // still up before TTL
+
+  act(() => {
+    vi.advanceTimersByTime(200);
+  });
+  expect(screen.queryByText("ephemeral")).toBeNull(); // gone at ~2.5s
 });

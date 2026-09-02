@@ -1,13 +1,9 @@
 /** @vitest-environment jsdom */
-import { afterEach, expect, test, vi } from "vitest";
+import { afterEach, expect, test } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { AppShell, type NavItem } from "@/components/AppShell";
-import { stubMatchMedia } from "@/test/dom";
 
-afterEach(() => {
-  cleanup();
-  vi.unstubAllGlobals();
-});
+afterEach(cleanup);
 
 const NAV: NavItem[] = [
   { key: "overview", label: "Overview", href: "/overview", icon: <svg /> },
@@ -23,7 +19,6 @@ const NAV: NavItem[] = [
 const USER = { name: "Kai R.", sub: "technical lead" };
 
 function renderShell(currentKey = "overview") {
-  stubMatchMedia(false);
   return render(
     <AppShell
       nav={NAV}
@@ -36,16 +31,22 @@ function renderShell(currentKey = "overview") {
   );
 }
 
-test("renders every nav item, the badge, the topbar and the children", () => {
-  renderShell();
+test("renders each nav item as a link, marks the current one, and places topbar + children", () => {
+  renderShell("changes");
+
   for (const item of NAV) {
-    expect(
-      screen.getByRole("link", { name: new RegExp(item.label, "i") }),
-    ).toBeTruthy();
+    const link = screen.getByRole("link", {
+      name: new RegExp(item.label, "i"),
+    });
+    expect(link.getAttribute("href")).toBe(item.href);
+    expect(link.getAttribute("aria-current")).toBe(
+      item.key === "changes" ? "page" : null,
+    );
   }
-  expect(screen.getByText("3")).toBeTruthy();
-  expect(screen.getByRole("heading", { name: "Overview" })).toBeTruthy();
-  expect(screen.getByText("stage content")).toBeTruthy();
+
+  expect(screen.getByText("3")).toBeTruthy(); // nav badge
+  expect(screen.getByRole("heading", { name: "Overview" })).toBeTruthy(); // topbar
+  expect(screen.getByText("stage content")).toBeTruthy(); // children
 });
 
 test("renders the user identity in the rail", () => {
@@ -54,29 +55,7 @@ test("renders the user identity in the rail", () => {
   expect(screen.getByText(/technical lead/i)).toBeTruthy();
 });
 
-test("marks only the current nav item with aria-current=page", () => {
-  renderShell("changes");
-  expect(
-    screen.getByRole("link", { name: /changes/i }).getAttribute("aria-current"),
-  ).toBe("page");
-  expect(
-    screen
-      .getByRole("link", { name: /overview/i })
-      .getAttribute("aria-current"),
-  ).toBeNull();
-});
-
-test("keys off matchMedia for the <=920px bottom-bar layout", () => {
-  stubMatchMedia((q) => q.includes("920"));
-  const { container } = render(
-    <AppShell nav={NAV} currentKey="overview" user={USER} topbar={null}>
-      <p>x</p>
-    </AppShell>,
-  );
-  expect(container.querySelector('[data-mobile="true"]')).not.toBeNull();
-});
-
-test("stays in the desktop layout when the breakpoint does not match", () => {
-  const { container } = renderShell();
-  expect(container.querySelector('[data-mobile="true"]')).toBeNull();
-});
+// TODO(phase-2 e2e): viewport test for the <=920px bottom-bar against
+// /dev/components (Playwright). The switch is pure CSS (@media in
+// AppShell.module.css); jsdom does not evaluate media queries, so it cannot be
+// asserted meaningfully here.
