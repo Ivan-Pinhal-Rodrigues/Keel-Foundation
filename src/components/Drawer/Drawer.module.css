@@ -1,0 +1,101 @@
+/*
+ * Ported from prototypes/flightdeck.html — .scrim / .drawer / .dr-head /
+ * .dr-body (and the .dr-id / h2 / .dr-close children). Static values are copied
+ * verbatim. The prototype toggled visibility with an `.open` class + transform
+ * transition; here @radix-ui/react-dialog mounts / unmounts the tree, so the
+ * enter is expressed as a keyframe keyed off Radix's `data-state="open"` and the
+ * `.open` rules are dropped.
+ */
+
+.scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 12, 18, 0.42);
+  z-index: 40;
+  animation: scrim-in 0.22s ease;
+}
+
+.drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  height: 100vh;
+  width: min(468px, 92vw);
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  box-shadow: var(--shadow-lg);
+  z-index: 41;
+  display: flex;
+  flex-direction: column;
+  animation: drawer-in 0.26s cubic-bezier(0.4, 0, 0.15, 1);
+}
+
+.drHead {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.drId {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-3);
+}
+.drTitle {
+  font-size: 16px;
+  font-weight: 700;
+  margin-top: 3px;
+}
+.drClose {
+  margin-left: auto;
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
+  display: grid;
+  place-items: center;
+  color: var(--text-3);
+  border: 1px solid var(--border);
+}
+.drClose:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+.drClose svg {
+  width: 15px;
+  height: 15px;
+  stroke: currentColor;
+  stroke-width: 2;
+  fill: none;
+}
+.drBody {
+  padding: 18px 20px 40px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+@keyframes scrim-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes drawer-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .scrim,
+  .drawer {
+    animation: none;
+  }
+}

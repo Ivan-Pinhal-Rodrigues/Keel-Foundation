@@ -1,0 +1,45 @@
+/*
+ * Ported from prototypes/flightdeck.html — .toasts / .toast (and the toastin
+ * keyframe). Values copied verbatim.
+ */
+
+.toasts {
+  position: fixed;
+  bottom: 22px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+}
+
+.toast {
+  background: var(--text);
+  color: var(--bg);
+  font-size: 12.5px;
+  font-weight: 500;
+  padding: 9px 15px;
+  border-radius: 9px;
+  box-shadow: var(--shadow-lg);
+  animation: toastin 0.2s ease;
+  font-family: var(--mono);
+}
+
+@keyframes toastin {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast {
+    animation: none;
+  }
+}
