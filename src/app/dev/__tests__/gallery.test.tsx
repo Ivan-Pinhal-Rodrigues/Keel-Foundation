@@ -1,12 +1,18 @@
 /** @vitest-environment jsdom */
-import { afterEach, expect, test } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { Gallery } from "@/app/dev/components/Gallery";
 import { stubMatchMedia, stubRadixEnv } from "@/test/dom";
 
-stubMatchMedia(false);
-stubRadixEnv();
-afterEach(cleanup);
+beforeEach(() => {
+  stubMatchMedia(false);
+  stubRadixEnv();
+});
+
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 /** Every component that must have its own labelled section in the gallery. */
 const SECTIONS = [

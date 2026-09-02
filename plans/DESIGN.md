@@ -442,6 +442,10 @@ Cross-module writes are deferred to Phase 2 wiring.
 
 ## 8. Interface contracts (frozen before Phase 1)
 
+> **Superseded by [`/CONTRACTS.md`](../CONTRACTS.md)** — that file is the
+> authoritative, code-extracted freeze (verbatim from the shipped modules). This
+> section is kept for design narrative only and may lag the real signatures.
+
 ```ts
 // src/server/policy/actor.ts
 export type Actor = {

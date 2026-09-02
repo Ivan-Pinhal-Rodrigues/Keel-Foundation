@@ -72,8 +72,13 @@ const twoUp: CSSProperties = {
   alignItems: "start",
 };
 const shellFrame: CSSProperties = {
+  position: "relative",
   height: 520,
   overflow: "hidden",
+  // `contain` makes this a containing block for AppShell's `position: fixed`
+  // mobile bottom-bar, so at a narrow viewport it stays inside the frame
+  // instead of overlaying the sections below.
+  contain: "layout paint",
   border: "1px solid var(--border)",
   borderRadius: 12,
 };

@@ -2315,7 +2315,7 @@ Run and confirm all green:
 pnpm lint && pnpm typecheck && pnpm test && pnpm build
 docker compose up -d && pnpm db:reset && pnpm db:deploy   # migrations apply clean from zero
 ```
-Confirm: login → protected route → logout works end to end (a short manual check or a Playwright smoke); the outbox worker logs a startup line; `/readyz` returns 200.
+Confirm: login → protected route → logout works end to end (a short manual check or a Playwright smoke); the outbox worker logs a startup line; `/api/readyz` returns 200.
 
 - [ ] **Step 7: Commit**
 

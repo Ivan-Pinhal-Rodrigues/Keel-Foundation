@@ -1,3 +1,4 @@
+import { logger } from "@/server/log";
 import { startOutboxWorker } from "@/server/modules/notify/worker";
 
 /**
@@ -13,4 +14,5 @@ export function bootstrap(): void {
   if (g.__keelBooted) return;
   g.__keelBooted = true;
   startOutboxWorker();
+  logger.info("keel bootstrap complete");
 }

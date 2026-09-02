@@ -143,12 +143,11 @@ export async function runOutboxOnce(deps: {
 export function startOutboxWorker(): void {
   const g = globalThis as unknown as { __keelOutbox?: NodeJS.Timeout };
   if (g.__keelOutbox) return;
-  g.__keelOutbox = setInterval(
-    () => {
-      runOutboxOnce({ transport: nodemailerTransport() }).catch((e) =>
-        logger.error({ err: e }, "outbox worker tick rejected"),
-      );
-    },
-    Number(process.env.NOTIFY_POLL_MS ?? 5000),
-  );
+  const pollMs = Number(process.env.NOTIFY_POLL_MS ?? 5000);
+  g.__keelOutbox = setInterval(() => {
+    runOutboxOnce({ transport: nodemailerTransport() }).catch((e) =>
+      logger.error({ err: e }, "outbox worker tick rejected"),
+    );
+  }, pollMs);
+  logger.info({ pollMs }, "outbox worker started");
 }

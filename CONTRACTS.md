@@ -4,10 +4,11 @@
 Changes require a note to all Phase 1 owners (A: demand · B: incident ·
 C: change + approvals · D: dashboards + portal).
 
-Extracted verbatim from the shipped code as of commit `540e204` (the last Phase 0
-implementation commit — the freeze commit that adds this file changes none of the
-modules quoted below). Where this document and the code disagree, the code wins —
-open a PR to fix this file.
+Extracted verbatim from the shipped code. Every signature below is unchanged from
+the Phase 0 baseline commit `540e204`; the Task 32 freeze commit (`40c0539`) and
+its review-round-2 follow-up add this file, the `/dev` gallery, and the two
+`logger.info` startup lines noted in §3 — no quoted signature changed. Where this
+document and the code disagree, the code wins — open a PR to fix this file.
 
 **How to read the signatures below.** Exported `type` / `interface` / `class`
 declarations are copied verbatim from the source. Function signatures are shown
@@ -344,12 +345,18 @@ export function runOutboxOnce(deps: {
 }): Promise<{ sent: number; failed: number; deferred: number }>;
 
 /** Start the polling loop — one per process, guarded on `globalThis`. Poll
- *  interval `NOTIFY_POLL_MS` (default 5000). */
+ *  interval `NOTIFY_POLL_MS` (default 5000). Emits one `logger.info`
+ *  ("outbox worker started") on the tick that actually starts it. */
 export function startOutboxWorker(): void;
 ```
 
 The `{ sent; failed; deferred }` return shape is a local type (`OutboxCounts`),
 not exported.
+
+As of the Task 32 fix commit, `startOutboxWorker()` and `bootstrap()`
+(`src/server/bootstrap.ts`) each emit one `logger.info` startup line
+(`@/server/log`) — "outbox worker started" and "keel bootstrap complete". No
+signature changed.
 
 ### `src/server/modules/notify/transport.ts`
 
@@ -515,12 +522,13 @@ export function createSession(
   client: PrismaTransaction = prisma,
 ): Promise<{ token: string; expires: Date }>;
 
-/** Resolves a cookie token to `{ session, user }` (session has `user`
- *  included), or `null`. Expired session or deactivated user → `null`. */
+/** No explicit return annotation in source; the inferred type is shown. The
+ *  `findUnique` uses `include: { user: true }`, so `session.user` is populated
+ *  too. `null` for an expired session or a deactivated user. */
 export function getSessionAndUser(
   token: string,
   client: PrismaTransaction = prisma,
-): Promise<{ session: Session; user: User } | null>;
+): Promise<{ session: Session & { user: User }; user: User } | null>;
 
 /** Idempotent — a token that is already gone is not an error. */
 export function destroySession(
@@ -979,8 +987,9 @@ findings.
 
 ### LifecycleStepper
 
-- Only the **current** stage's gate checkboxes are interactive. Past-stage boxes
-  render checked, future-stage boxes render unchecked, and **both are disabled**.
+- Only the **current** stage's gate checkboxes are interactive. Past- and
+  future-stage boxes are disabled and render checked / unchecked purely from each
+  item's `done` value — the component never overrides it.
 - The component **trusts the caller's `item.done`** for past and future stages —
   it does not force a past stage's gates to checked. If you want a completed
   past stage to read as done, pass `done: true`.
