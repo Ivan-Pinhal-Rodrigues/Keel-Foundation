@@ -1,0 +1,60 @@
+/*
+ * Ported from prototypes/flightdeck.html — .feed / .feed li (+ ::before
+ * connector) / .fdot / .ftext / .fmeta. Values copied verbatim.
+ *
+ * The prototype set the dot colour with an inline `style="background:…"`; the
+ * component keeps that (the tone is a free-form CSS colour), defaulting to
+ * `--border-strong` when the item has no tone.
+ */
+
+.feed {
+  display: flex;
+  flex-direction: column;
+}
+.feed li {
+  display: grid;
+  grid-template-columns: 14px 1fr;
+  gap: 11px;
+  padding: 10px 14px;
+  list-style: none;
+  position: relative;
+}
+.feed li::before {
+  content: "";
+  position: absolute;
+  left: 20px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--border);
+}
+.feed li:first-child::before {
+  top: 14px;
+}
+.feed li:last-child::before {
+  bottom: calc(100% - 14px);
+}
+.fdot {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  margin-top: 5px;
+  z-index: 1;
+  border: 2px solid var(--surface);
+}
+.ftext {
+  display: block;
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+.ftext b {
+  color: var(--text);
+  font-weight: 600;
+}
+.fmeta {
+  display: block;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-3);
+  margin-top: 2px;
+}

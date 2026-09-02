@@ -1,0 +1,71 @@
+/*
+ * Ported from prototypes/flightdeck.html — .tiles / .tile (+ .lab .big
+ * .big small .sub .tick). Values copied verbatim.
+ *
+ * Two adaptations for the component:
+ *  - .tiles (the 4-up grid) is a layout concern for the page, not the Tile
+ *    itself, so it is not ported here.
+ *  - the prototype markup is `<span class="big num">`; `.num` is the global
+ *    tabular-figures utility (src/styles/globals.css). Its one declaration is
+ *    folded into `.big` so the component stays self-contained — the rendered
+ *    result is identical.
+ *  - the prototype set the tick colour with an inline `style="background:…"`;
+ *    here it is a `data-tone` attribute + the rules below.
+ */
+
+.tile {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 15px 16px 14px;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.lab {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.big {
+  font-family: var(--display);
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums; /* folded-in `.num` utility */
+}
+.big small {
+  font-size: 15px;
+  color: var(--text-3);
+  font-weight: 600;
+}
+.sub {
+  font-size: 12px;
+  color: var(--text-2);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.tick {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  flex: none;
+}
+.tick[data-tone="ok"] {
+  background: var(--ok);
+}
+.tick[data-tone="warn"] {
+  background: var(--warn);
+}
+.tick[data-tone="crit"] {
+  background: var(--crit);
+}
+.tick[data-tone="info"] {
+  background: var(--info);
+}

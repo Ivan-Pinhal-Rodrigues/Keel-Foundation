@@ -1,0 +1,128 @@
+/*
+ * Ported from prototypes/flightdeck.html — the pill / chip family:
+ *   .pill (+ .pdot .ok .warn .crit .info .accent)   ~line 256
+ *   .env  (+ .dev .test .staging .prod)             ~line 269
+ *   .risk (+ .low .medium .high, ::before bullet)   ~line 276
+ *   .pri  (+ .p1 .p2 .p3)                           ~line 282
+ * Values copied verbatim.
+ *
+ * Additions / omissions:
+ *  - `.pri.p4` is NEW — the prototype styles only P1-P3. Muted, consistent
+ *    with the family: `background: var(--info-wash); color: var(--text-3)`.
+ *  - `.pill.live` (a pulsing dot) and `.env-row` (a flex wrapper) are page-level
+ *    demo concerns and are not ported — the frozen <Pill> interface has no
+ *    `live` prop, and callers own their own layout.
+ */
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.pill .pdot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentColor;
+}
+.pill.ok {
+  background: var(--ok-wash);
+  color: var(--ok);
+}
+.pill.warn {
+  background: var(--warn-wash);
+  color: var(--warn);
+}
+.pill.crit {
+  background: var(--crit-wash);
+  color: var(--crit);
+}
+.pill.info {
+  background: var(--info-wash);
+  color: var(--info);
+}
+.pill.accent {
+  background: var(--accent-wash);
+  color: var(--accent-ink);
+}
+
+.env {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 5px;
+}
+.env.dev {
+  background: var(--dev-wash);
+  color: var(--dev);
+}
+.env.test {
+  background: var(--test-wash);
+  color: var(--test);
+}
+.env.staging {
+  background: var(--staging-wash);
+  color: var(--staging);
+}
+.env.prod {
+  background: var(--prod-wash);
+  color: var(--prod);
+}
+
+.risk {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.risk.low {
+  color: var(--text-3);
+}
+.risk.medium {
+  color: var(--warn);
+}
+.risk.high {
+  color: var(--crit);
+}
+.risk::before {
+  content: "\2022 ";
+}
+
+.pri {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 5px;
+}
+.pri.p1 {
+  background: var(--crit-wash);
+  color: var(--crit);
+}
+.pri.p2 {
+  background: var(--warn-wash);
+  color: var(--warn);
+}
+.pri.p3 {
+  background: var(--info-wash);
+  color: var(--text-2);
+}
+.pri.p4 {
+  background: var(--info-wash);
+  color: var(--text-3);
+}

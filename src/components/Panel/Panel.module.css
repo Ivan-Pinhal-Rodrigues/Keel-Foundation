@@ -1,0 +1,36 @@
+/*
+ * Ported from prototypes/flightdeck.html — .panel / .panel-head /
+ * .panel-head h3 / .panel-head .count / .panel-body / .panel-body.pad.
+ * Values copied verbatim.
+ */
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+.panelHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 13px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.panelHead h3 {
+  font-size: 13px;
+  font-weight: 700;
+}
+.panelHead .count {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-3);
+  margin-left: auto;
+}
+.panelBody {
+  padding: 6px;
+}
+.panelBody.pad {
+  padding: 16px;
+}

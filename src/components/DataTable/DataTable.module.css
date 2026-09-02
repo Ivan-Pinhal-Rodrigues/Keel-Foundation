@@ -1,0 +1,88 @@
+/*
+ * Ported from prototypes/flightdeck.html — .table-wrap / .table-scroll and the
+ * .table / .thead / .trow rules (~line 303).
+ *
+ * The prototype's "table" is an ARIA grid built from `display:grid` divs with a
+ * fixed 7-column template. <DataTable> is a generic component with caller-
+ * supplied columns, so it renders a real <table> and the grid-template /
+ * per-column-class rules do not carry over. What is ported:
+ *  - .table-wrap, .table-scroll: verbatim.
+ *  - .thead  -> .th  : height 38px, mono 10px caps, .1em tracking, --text-3,
+ *                      bottom border. `text-align:left` + `font-weight:400`
+ *                      restate the prototype div's defaults that a real <th>
+ *                      would otherwise override (center / bold).
+ *  - .trow   -> .tr  : 52px min row height (was `min-height`), bottom border
+ *                      that drops on the last row, `--surface-2` hover,
+ *                      `transition:background .1s`. `cursor:pointer` +
+ *                      inset focus ring: the prototype row was a <button>; the
+ *                      ring is inset so `.table-wrap { overflow:hidden }` can't
+ *                      clip it.
+ * Dropped as demo-specific: `.table { min-width:940px }` (sized for the
+ * prototype's 7 fixed columns; the scroll container handles overflow for any
+ * width). `border-collapse:collapse` is new — required for real table borders.
+ *
+ * The stage pips (.pips / .pip / …) live in LifecyclePips.module.css — that
+ * component is a server component and must not import a "use client" module's
+ * siblings by accident.
+ */
+
+.tableWrap {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+.tableScroll {
+  overflow-x: auto;
+}
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.th {
+  height: 38px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  font-weight: 400;
+  text-align: left;
+  white-space: nowrap;
+}
+.th:first-child,
+.td:first-child {
+  padding-left: 16px;
+}
+.th:last-child,
+.td:last-child {
+  padding-right: 16px;
+}
+
+.tr {
+  height: 52px;
+  border-bottom: 1px solid var(--border);
+  transition: background 0.1s;
+  cursor: pointer;
+}
+.tr:last-child {
+  border-bottom: none;
+}
+.tr:hover {
+  background: var(--surface-2);
+}
+.tr:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.td {
+  padding: 0 12px;
+  font-size: 13px;
+  color: var(--text-2);
+  vertical-align: middle;
+}

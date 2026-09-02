@@ -1,0 +1,30 @@
+/*
+ * Ported from prototypes/flightdeck.html — .pips / .pip / .pip.past /
+ * .pip.now / .pip.parked (~line 489). Values copied verbatim.
+ *
+ * `--c` is the pip accent. The prototype set it per-pip from the ITIL phase
+ * colour (`style="--c:var(--warn)"` etc.); the frozen <LifecyclePips> interface
+ * has no phase/tone input, so it is pinned to `--accent` on `.pips`.
+ */
+
+.pips {
+  display: flex;
+  gap: 3px;
+  --c: var(--accent);
+}
+.pip {
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--border-strong);
+}
+.pip.past {
+  background: var(--c);
+}
+.pip.now {
+  background: var(--c);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--c) 32%, transparent);
+}
+.pip.parked {
+  background: var(--info);
+}
