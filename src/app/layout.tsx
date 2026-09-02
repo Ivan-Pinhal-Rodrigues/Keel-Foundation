@@ -17,7 +17,10 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: ReactNode }>) {
   return (
-    <html lang="en">
+    // themeScript sets documentElement.dataset.theme before hydration; without
+    // this, React logs a mismatch on every load when a keel-theme cookie is set.
+    // Scoped to the <html> element's own attributes only (one level deep).
+    <html lang="en" suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
