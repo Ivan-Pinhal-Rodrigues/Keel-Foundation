@@ -54,7 +54,10 @@ export async function runOutboxOnce(deps: {
 }): Promise<OutboxCounts> {
   const db = deps.db ?? prisma;
   const now = (deps.now ?? (() => new Date()))();
-  const batch = Number(process.env.NOTIFY_BATCH ?? 20);
+  // `|| 20` (not `?? 20`): an unset, empty, or non-numeric NOTIFY_BATCH must
+  // fall back to 20. `?? 20` would let NOTIFY_BATCH="" through as `Number("")`
+  // === 0 → `LIMIT 0` → the outbox silently wedges with no error.
+  const batch = Number(process.env.NOTIFY_BATCH) || 20;
   let counts: OutboxCounts = { sent: 0, failed: 0, deferred: 0 };
 
   try {

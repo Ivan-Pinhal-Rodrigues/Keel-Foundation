@@ -21,6 +21,12 @@ const seedRow = (
       template: "guest_invite",
       payload: { clientName: "N", url: "http://x/portal/invite/tok" },
       status: "PENDING",
+      // Explicitly due-in-the-past. Relying on the `@default(now())` value being
+      // `<= ` the `new Date()` that `runOutboxOnce` captures a few ms later is a
+      // race: under the full suite's parallel load the margin flips and the
+      // claim query returns 0 rows. A test that wants a future row overrides
+      // this via `over`.
+      nextAttemptAt: new Date(Date.now() - 60_000),
       ...over,
     },
   });

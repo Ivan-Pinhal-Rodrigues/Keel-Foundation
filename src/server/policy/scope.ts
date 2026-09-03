@@ -1,4 +1,4 @@
-import { Actor, isInternal } from "./actor";
+import { type Actor, isInternal } from "./actor";
 import { NotFoundError } from "./errors";
 
 export function scopeToClient(
