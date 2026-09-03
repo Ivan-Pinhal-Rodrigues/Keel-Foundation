@@ -87,6 +87,53 @@ test("with onRowClick: an activator button per row calls it with that row", asyn
   expect(bodyRow?.hasAttribute("tabindex")).toBe(false);
 });
 
+test("a click on a plain cell activates the whole row", async () => {
+  const user = userEvent.setup();
+  const onRowClick = vi.fn();
+  renderTable(onRowClick);
+
+  // "Rotate certs" is ROWS[1]'s title cell — a plain, non-interactive cell.
+  // The guarded onClick on the <tr> is the mouse path to onRowClick.
+  await user.click(screen.getByText("Rotate certs"));
+  expect(onRowClick).toHaveBeenCalledTimes(1);
+  expect(onRowClick).toHaveBeenCalledWith(ROWS[1]);
+});
+
+test("a plain-cell click still activates a row that also has an actions column", async () => {
+  const user = userEvent.setup();
+  const onRowClick = vi.fn();
+  const withAction: Column<Row>[] = [
+    ...COLUMNS,
+    {
+      key: "act",
+      header: "",
+      cell: (r) => (
+        <button type="button" onClick={() => {}}>
+          edit {r.id}
+        </button>
+      ),
+    },
+  ];
+  render(
+    <DataTable
+      columns={withAction}
+      rows={ROWS}
+      getRowId={(r) => r.id}
+      onRowClick={onRowClick}
+      label="Changes"
+    />,
+  );
+
+  // a plain cell in the row still activates it...
+  await user.click(screen.getByText("Migrate auth"));
+  expect(onRowClick).toHaveBeenCalledTimes(1);
+  expect(onRowClick).toHaveBeenCalledWith(ROWS[0]);
+
+  // ...but the actions button in that same row does not fire it again
+  await user.click(screen.getByRole("button", { name: /edit CHG-1/i }));
+  expect(onRowClick).toHaveBeenCalledTimes(1);
+});
+
 test("onRowClick fires with the exact row object on keyboard activation", async () => {
   const user = userEvent.setup();
   const onRowClick = vi.fn();
@@ -96,11 +143,13 @@ test("onRowClick fires with the exact row object on keyboard activation", async 
 
   btns[1]?.focus();
   await user.keyboard("{Enter}");
+  expect(onRowClick).toHaveBeenCalledTimes(1);
   expect(onRowClick).toHaveBeenCalledWith(ROWS[1]);
 
   onRowClick.mockClear();
   btns[0]?.focus();
   await user.keyboard(" ");
+  expect(onRowClick).toHaveBeenCalledTimes(1);
   expect(onRowClick).toHaveBeenCalledWith(ROWS[0]);
 });
 

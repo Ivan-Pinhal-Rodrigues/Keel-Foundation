@@ -106,16 +106,20 @@ export function DataTable<R>({
                 >
                   {columns.map((col, colIndex) => {
                     const content = col.cell(row);
+                    const activatorLabel =
+                      colIndex === 0 && onRowClick
+                        ? rowActivatorLabel(content, label)
+                        : null;
                     return (
                       <td key={col.key} className={styles.td}>
-                        {colIndex === 0 && onRowClick ? (
+                        {activatorLabel !== null && onRowClick ? (
                           <button
                             type="button"
                             className={styles.rowActivator}
-                            aria-label={rowActivatorLabel(content, label)}
+                            aria-label={activatorLabel}
                             onClick={() => onRowClick(row)}
                           >
-                            {rowActivatorLabel(content, label)}
+                            {activatorLabel}
                           </button>
                         ) : null}
                         {content}

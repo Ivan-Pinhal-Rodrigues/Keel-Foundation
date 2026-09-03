@@ -139,20 +139,25 @@ const CHANGE_ROWS: ChangeRow[] = [
 ];
 
 const CHANGE_COLUMNS: Column<ChangeRow>[] = [
+  // Plain-string first cell, so each row activator gets the specific
+  // `Open <label>: <ref>` name (not the generic fallback).
+  { key: "id", header: "Ref", width: "112px", cell: (r) => r.id },
+  { key: "title", header: "Title", cell: (r) => r.title },
+  { key: "owner", header: "Owner", cell: (r) => r.owner },
+];
+
+/** The same register plus a trailing actions column — the cell's own button
+ *  fires only its own handler, never the row's `onRowClick`. The first cell
+ *  here renders an element, so its activators show the generic `Open <label>`
+ *  fallback — the other half of that rule. */
+const CHANGE_COLUMNS_WITH_ACTIONS: Column<ChangeRow>[] = [
   {
     key: "id",
     header: "Ref",
     width: "112px",
     cell: (r) => <span className="mono">{r.id}</span>,
   },
-  { key: "title", header: "Title", cell: (r) => r.title },
-  { key: "owner", header: "Owner", cell: (r) => r.owner },
-];
-
-/** The same register plus a trailing actions column — the cell's own button
- *  fires only its own handler, never the row's `onRowClick`. */
-const CHANGE_COLUMNS_WITH_ACTIONS: Column<ChangeRow>[] = [
-  ...CHANGE_COLUMNS,
+  ...CHANGE_COLUMNS.slice(1),
   {
     key: "actions",
     header: "",
