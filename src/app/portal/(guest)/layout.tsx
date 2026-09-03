@@ -25,6 +25,7 @@ export default async function GuestPortalLayout({
 }) {
   const actor = await getCurrentActor();
   if (!actor) redirect("/login");
+  // TODO(plan-06): internal home becomes /overview once the dashboard ships.
   if (actor.kind !== "GUEST") redirect("/demands");
 
   return (

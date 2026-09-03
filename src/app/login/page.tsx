@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { getCurrentActor } from "@/server/auth/current";
 import { LoginForm } from "./LoginForm";
+import { sanitizeNext } from "./sanitize-next";
 import styles from "./login.module.css";
 
 export const metadata: Metadata = {
@@ -13,9 +14,9 @@ export const metadata: Metadata = {
  * request that already has a live session is bounced to its home surface so the
  * form is never shown to someone who is signed in.
  *
- * `next` is where the form sends the user after a successful login. Anything
- * that is not a same-site absolute path (must start with a single `/`) is
- * dropped for `/demands`, so a crafted `?next=` cannot turn this into an open
+ * `next` is where the form sends the user after a successful login; anything
+ * that does not resolve to a same-origin path is dropped for `/demands`
+ * (`sanitize-next.ts`), so a crafted `?next=` cannot turn this into an open
  * redirect.
  */
 export default async function LoginPage({
@@ -24,17 +25,13 @@ export default async function LoginPage({
   searchParams: Promise<{ next?: string | string[] }>;
 }) {
   const actor = await getCurrentActor();
-  if (actor) redirect(actor.kind === "INTERNAL" ? "/demands" : "/portal");
+  if (actor) {
+    // TODO(plan-06): internal home becomes /overview once the dashboard ships.
+    redirect(actor.kind === "INTERNAL" ? "/demands" : "/portal");
+  }
 
   const { next: raw } = await searchParams;
-  const candidate = Array.isArray(raw) ? raw[0] : raw;
-  const next =
-    candidate &&
-    candidate.startsWith("/") &&
-    !candidate.startsWith("//") &&
-    !candidate.startsWith("/\\")
-      ? candidate
-      : "/demands";
+  const next = sanitizeNext(raw);
 
   return (
     <main className={styles.wrap}>

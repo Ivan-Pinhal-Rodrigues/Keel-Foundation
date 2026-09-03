@@ -5,6 +5,7 @@ import { useState } from "react";
 import type { FormEvent } from "react";
 import styles from "./login.module.css";
 
+const MISSING_FIELDS = "Enter your email and password.";
 const WRONG_CREDENTIALS = "The email or password is incorrect.";
 const GENERIC_ERROR = "Something went wrong. Please try again.";
 
@@ -14,8 +15,8 @@ const GENERIC_ERROR = "Something went wrong. Please try again.";
  * cookie on 200) and then routes to `next`. A 401 is the wrong-credentials case
  * and is shown inline; the button is disabled for the duration of the request.
  *
- * `next` is already validated server-side in `page.tsx` (must start with `/`),
- * so it is safe to hand straight to `router.push`.
+ * `next` is already reduced to a same-origin path server-side in `page.tsx`
+ * (`sanitize-next.ts`), so it is safe to hand straight to `router.push`.
  */
 export function LoginForm({ next }: { next: string }) {
   const router = useRouter();
@@ -27,6 +28,15 @@ export function LoginForm({ next }: { next: string }) {
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
+
+    // `noValidate` is set (consistent styling for the inline error), so catch an
+    // empty submit here rather than letting the server answer it with an opaque
+    // "something went wrong".
+    if (!email.trim() || !password) {
+      setError(MISSING_FIELDS);
+      return;
+    }
+
     setPending(true);
     try {
       const res = await fetch("/api/auth/login", {

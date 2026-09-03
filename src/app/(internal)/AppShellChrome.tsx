@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { AppShell, type NavItem } from "@/components/AppShell";
 import { LogoutButton } from "@/components/LogoutButton";
+import { navKeyFor } from "./nav";
 import styles from "./AppShellChrome.module.css";
 
 /**
@@ -39,14 +40,11 @@ export function AppShellChrome({
   children: ReactNode;
 }) {
   const pathname = usePathname() ?? "";
-  const current = NAV.find(
-    (item) => pathname === item.href || pathname.startsWith(`${item.href}/`),
-  );
 
   return (
     <AppShell
       nav={NAV}
-      currentKey={current?.key ?? ""}
+      currentKey={navKeyFor(pathname, NAV)}
       user={user}
       topbar={
         <div className={styles.topbar}>

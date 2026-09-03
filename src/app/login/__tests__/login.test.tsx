@@ -18,16 +18,31 @@ test("submits credentials and routes to `next` on 200", async () => {
     .spyOn(globalThis, "fetch")
     .mockResolvedValue(new Response(null, { status: 200 }));
 
-  render(<LoginForm next="/demands" />);
+  // `next` is deliberately not the "/demands" fallback, so this also proves the
+  // prop is threaded through rather than ignored.
+  render(<LoginForm next="/incidents" />);
   await userEvent.type(screen.getByLabelText(/email/i), "ceo@keel.local");
   await userEvent.type(screen.getByLabelText(/password/i), "hunter2hunter2");
   await userEvent.click(screen.getByRole("button", { name: /sign in/i }));
 
-  await waitFor(() => expect(push).toHaveBeenCalledWith("/demands"));
+  await waitFor(() => expect(push).toHaveBeenCalledWith("/incidents"));
   expect(fetchMock).toHaveBeenCalledWith(
     "/api/auth/login",
     expect.objectContaining({ method: "POST" }),
   );
+});
+
+test("an empty submit shows a field error and never calls the API", async () => {
+  const fetchMock = vi.spyOn(globalThis, "fetch");
+
+  render(<LoginForm next="/demands" />);
+  await userEvent.click(screen.getByRole("button", { name: /sign in/i }));
+
+  expect((await screen.findByRole("alert")).textContent).toMatch(
+    /enter your email and password/i,
+  );
+  expect(fetchMock).not.toHaveBeenCalled();
+  expect(push).not.toHaveBeenCalled();
 });
 
 test("shows an inline error on 401 and does not navigate", async () => {

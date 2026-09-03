@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { cookies } from "next/headers";
 import type { $Enums } from "@prisma/client";
 import { SESSION_COOKIE } from "@/lib/http/cookies";
@@ -26,7 +27,12 @@ export type Me = {
   email: string;
 };
 
-async function resolve(): Promise<{ user: Me } | null> {
+// `cache` dedupes the session read within a single RSC render pass: a layout
+// that calls both `getCurrentActor()` (guard) and `whoami()` (display) — as
+// `(internal)/layout.tsx` does — pays for one `getSessionAndUser`, not two.
+// Outside a render (API routes never call these; tests) `cache` is a transparent
+// no-op, so each call still resolves fresh.
+const resolve = cache(async (): Promise<{ user: Me } | null> => {
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!token) return null;
   const s = await getSessionAndUser(token);
@@ -35,7 +41,7 @@ async function resolve(): Promise<{ user: Me } | null> {
   if (!s || !s.user.isActive) return null;
   const { id, kind, hats, clientId, displayName, email } = s.user;
   return { user: { id, kind, hats, clientId, displayName, email } };
-}
+});
 
 /** The current request's actor, for server components and layouts. Returns
  *  `null` (never throws) when there is no usable session. Do NOT use in an

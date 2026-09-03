@@ -7,5 +7,6 @@ import { redirect } from "next/navigation";
  * `(internal)` layout guard.
  */
 export default function Root(): never {
+  // TODO(plan-06): change to /overview once the dashboard ships.
   redirect("/demands");
 }
