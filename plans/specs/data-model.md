@@ -290,7 +290,11 @@ incremented inside the creating transaction. No reliance on sequence gaps.
 ## Migrations
 
 - Prisma Migrate. One migration per logical change.
-- Every migration has a verified down path; CI runs up → down → up on a scratch database.
+- Every migration carries a `-- Down:` comment (a reviewed, reversible down path).
+  The gate runs `check:migrations`; a full up → down → up scratch-database harness
+  is plan-08.
 - The `audit_event` grant migration and the two-role setup are raw SQL migrations checked
-  into `prisma/migrations/`.
+  into `prisma/migrations/`. Record-of-fact tables (`AuditEvent`, `ApprovalDecision`,
+  `PostImplementationReview`) `REVOKE UPDATE, DELETE` from `keel_app` in their creating
+  migration — see [`../../docs/migrations.md`](../../docs/migrations.md).
 - No destructive column drops without a preservation step (rename + backfill + later drop).

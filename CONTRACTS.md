@@ -25,6 +25,7 @@ Interfaces changed after the Phase 0 freeze. Each was reviewed and agreed with a
 - **plan-1a Task 2** — `scopeToClient` now fails closed: a guest with a null `clientId` (a data bug the new `user_guest_has_client` CHECK constraint prevents) gets an impossible-match `{ clientId: … }`, never `{}`. Spreading it into a `where` matches zero rows. Consumed by plan-01 Task 2's `listDemands`, plan-02, plan-04.
 - **plan-1a Task 3** — `serializePick` (allowlist) added to `src/server/policy/serialize.ts`; `serializeFor` is kept but marked internal-shaping-only (denylist — a new column leaks to guests by omission). `plan-01`'s `serializeDemand` and all Phase 1 guest serializers use `serializePick`, not `serializeFor`.
 - **plan-1a Task 4** — `addComment` / `listComments` (`src/server/modules/comment/index.ts`) take one `CommentSubject` (`{ type, id, clientId }`) instead of a bare `(subjectType, subjectId)`, and call `requireOwnClientOr404(actor, subject.clientId)` internally — a portal comment route that forgets the ownership check can no longer leak another client's `visibleToClient` thread. The action check (`authorize(actor, "comment.create", …)` for a write, the subject's own view check for a read) stays with the caller. `CommentSubjectType` is removed (superseded by `CommentSubject`). Consumed by plan-01 Task 6 (demand comments route), plan-02 (incident drawer), plan-03 (change drawer).
+- **plan-1a Task 5** — record-of-fact tables (`AuditEvent`, `ApprovalDecision`, `PostImplementationReview`) are append-only for `keel_app` at the DB privilege level (§2). `20260903125809_audit_default_privileges` revokes `UPDATE, DELETE` on the two that had inherited it from `ALTER DEFAULT PRIVILEGES`. New gate check `scripts/check-migrations.mjs` (in `pnpm test` and `pnpm check:migrations`) fails if any record-of-fact table is mutable by the runtime role, or if a migration folder breaks the `<14-digit UTC ts>_<snake>` / ascending-order convention. Convention doc: [`docs/migrations.md`](docs/migrations.md). Consumed by plan-03 (`ApprovalDecision`, PIR writes), plan-08 (up/down/up harness).
 
 ---
 
@@ -306,6 +307,16 @@ export function writeAudit(
 - `requestId` is **not** an `AuditInput` field. `writeAudit` reads it from async
   context via `getRequestId()` (§9), which **throws `"no request context"`** if
   the caller is not inside `runWithContext` / `withRequest`.
+
+### Record-of-fact tables
+
+`AuditEvent`, `ApprovalDecision`, and `PostImplementationReview` are permanent
+records of a fact. The runtime role (`keel_app`) has **`SELECT` + `INSERT` only**
+— `UPDATE` / `DELETE` are revoked at the database privilege level, so a service
+bug cannot rewrite history. A migration that adds a new record-of-fact table
+must `REVOKE UPDATE, DELETE … FROM keel_app` in the same migration and add the
+table to `RECORD_OF_FACT` in `scripts/check-migrations.mjs` (run in the gate).
+See [`docs/migrations.md`](docs/migrations.md).
 
 ---
 

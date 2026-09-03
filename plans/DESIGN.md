@@ -291,7 +291,14 @@ business-hours calendar, no "waiting for client" pause.
   that introduces them.
 - The audit-log grant restriction and the migration-role split are a
   checked-in raw SQL migration.
-- CI runs `up → down → up` on a scratch database for every migration.
+- Record-of-fact tables (`AuditEvent`, `ApprovalDecision`,
+  `PostImplementationReview`) are append-only at the DB privilege level — the
+  migration that creates such a table also `REVOKE`s `UPDATE, DELETE` from
+  `keel_app`.
+- The gate runs `check:migrations` (folder-name convention + every record-of-fact
+  table verified non-mutable by the runtime role). A full `up → down → up`
+  scratch-database harness is plan-08.
+- Convention and procedure: [`docs/migrations.md`](../docs/migrations.md).
 
 ---
 
@@ -525,7 +532,9 @@ export function emitNotification(tx: PrismaTransaction, spec: NotificationSpec):
 - **CI**, merge blocked on any failure:
   `lint → typecheck → unit+integration → build → e2e → helm lint → kind (install
   chart + migration job + /api/readyz + API smoke)`.
-  Every migration is checked `up → down → up` on a scratch database.
+  `check:migrations` runs in the gate (folder-name convention + record-of-fact
+  tables verified append-only); a full `up → down → up` scratch-database harness
+  is plan-08. See §4.3 and [`docs/migrations.md`](../docs/migrations.md).
 
 ---
 
