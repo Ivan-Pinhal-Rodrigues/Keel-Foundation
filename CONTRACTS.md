@@ -783,6 +783,19 @@ response shape, a response schema (`<noun>Response`). Client components call
 `apiFetch(path, { schema: <noun>Response })`. Phase 0's schema files (`auth`,
 `sessions`, `invites`) predate this and are not retrofitted.
 
+### `src/server/db/errors.ts`
+
+Typed Prisma error helpers. Used by domain code (plan-03's convert idempotency, plan-01's redeem race) to detect constraint violations.
+
+```ts
+/** Returns true iff `e` is a P2002 unique-constraint violation. If `target` is
+ *  given, narrows to that constraint field only. */
+export function isUniqueViolation(e: unknown, target?: string): boolean;
+
+/** Returns true iff `e` is a P2025 not-found error. */
+export function isNotFound(e: unknown): boolean;
+```
+
 ### `src/lib/http/cookies.ts`
 
 Cookie name + a `Request`-header cookie reader, shared between the Edge

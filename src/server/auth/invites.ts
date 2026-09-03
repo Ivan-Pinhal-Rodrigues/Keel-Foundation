@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { writeAudit } from "@/server/audit/write";
 import { hashPassword } from "@/server/auth/password";
 import { prisma } from "@/server/db/client";
+import { isUniqueViolation } from "@/server/db/errors";
 import type { PrismaTransaction } from "@/server/db/tx";
 import { isInternal } from "@/server/policy/actor";
 import type { Actor } from "@/server/policy/actor";
@@ -88,14 +89,6 @@ export async function clientForInviteToken(
   }
   return { clientName: invite.client.name };
 }
-
-/** Postgres unique-constraint violation, without importing the Prisma error
- *  type (the `@prisma/client` import is confined to `src/server/db/**`). */
-const isUniqueViolation = (e: unknown): boolean =>
-  typeof e === "object" &&
-  e !== null &&
-  "code" in e &&
-  (e as { code?: unknown }).code === "P2002";
 
 /**
  * Redeem a raw invite token: create the scoped `GUEST` user, mark the invite

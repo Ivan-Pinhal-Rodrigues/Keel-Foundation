@@ -12,8 +12,10 @@ const PASSWORD = "correct horse battery";
 
 /** Seed a client + a live invite; return the raw (unhashed) token. */
 async function seedInvite(overrides: Record<string, unknown> = {}) {
-  const client = await db().client.create({
-    data: { name: "Stark Industries", isActive: true },
+  const client = await db().client.upsert({
+    where: { name: "Stark Industries" },
+    update: {},
+    create: { name: "Stark Industries", isActive: true },
   });
   const raw = randomBytes(32).toString("base64url");
   const invite = await db().guestInvite.create({

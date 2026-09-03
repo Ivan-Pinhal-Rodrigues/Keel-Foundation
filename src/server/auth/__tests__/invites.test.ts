@@ -26,7 +26,11 @@ const guest: Actor = {
 };
 
 const seedClient = (name = "Northwind") =>
-  db().client.create({ data: { name, isActive: true } });
+  db().client.upsert({
+    where: { name },
+    update: {},
+    create: { name, isActive: true },
+  });
 
 /** A unique invitee address per test — the per-file schema is shared across
  *  tests, so every row this file writes is scoped by its own email. */
