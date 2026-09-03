@@ -27,6 +27,7 @@ Interfaces changed after the Phase 0 freeze. Each was reviewed and agreed with a
 - **plan-1a Task 4** — `addComment` / `listComments` (`src/server/modules/comment/index.ts`) take one `CommentSubject` (`{ type, id, clientId }`) instead of a bare `(subjectType, subjectId)`, and call `requireOwnClientOr404(actor, subject.clientId)` internally — a portal comment route that forgets the ownership check can no longer leak another client's `visibleToClient` thread. The action check (`authorize(actor, "comment.create", …)` for a write, the subject's own view check for a read) stays with the caller. `CommentSubjectType` is removed (superseded by `CommentSubject`). Consumed by plan-01 Task 6 (demand comments route), plan-02 (incident drawer), plan-03 (change drawer).
 - **plan-1a Task 5** — record-of-fact tables (`AuditEvent`, `ApprovalDecision`, `PostImplementationReview`) are append-only for `keel_app` at the DB privilege level (§2). `20260903125809_audit_default_privileges` revokes `UPDATE, DELETE` on `ApprovalDecision` and `PostImplementationReview` — both predate `20260901200800_audit_grants` and were granted full DML by its `GRANT … ON ALL TABLES IN SCHEMA`. New gate check `scripts/check-migrations.mjs` (in `pnpm test` and `pnpm check:migrations`) fails if any record-of-fact table is mutable by the runtime role, or if a migration folder breaks the `<14-digit UTC ts>_<snake>` name / has a colliding timestamp. Convention doc: [`docs/migrations.md`](docs/migrations.md). Consumed by plan-03 (`ApprovalDecision`, PIR writes), plan-08 (up/down/up harness).
 - **plan-1a Task 7** — `src/lib/api/client.ts` added (§7): `apiFetch<T>(path, { method, body, schema, signal })` + `ApiError` / `ApiErrorBody`, the browser-side typed `fetch` wrapper `DESIGN.md` §8 promised. Non-2xx → `throw new ApiError(status, body)`; a 204 / empty body → `undefined`; a `schema` parses and types the 2xx body, a mismatch throwing `ZodError` not `ApiError`; a transport failure rejects untouched. Response-schema convention: `src/lib/api/schemas/README.md` — request schema always (`<verb><Noun>Body`), response schema (`<noun>Response`) where a client needs the shape; Phase 0's schema files are not retrofitted. Consumed by every Phase 1 client component — plan-01 (demand UI), plan-02 (incident UI), plan-03 (change UI), plan-04 (dashboards + portal).
+- **plan-1a Task 8** — `LifecycleStepperProps` gains `blockedReason?: string` (rendered under a disabled Advance once every current-stage gate is checked — the non-gate reason: approval pending, no window; while gates are incomplete the gate-count hint still wins) and `Stage` gains `state?: "done" | "current" | "upcoming" | "blocked" | "reverted"`, an override that wins over the state derived from `currentStageKey` + array order. A stage with an explicit `state` is inert (no interactive gates, no Advance button); `"blocked"` / `"reverted"` add amber (`--warn`) / muted-red (`--crit`) node + label tints. Additive — an unset `state` and unset `blockedReason` are exactly the Phase 0 behaviour. Consumed by plan-03 (the change drawer — a rolled-back change renders every stage `reverted`; an approval-pending change shows `blockedReason` under a stuck Advance).
 
 ---
 
@@ -1073,6 +1074,11 @@ export type Stage = {
   label: string;
   purpose: string;
   gate: GateItem[];
+  /** Override the state derived from `currentStageKey` + array order. `"blocked"`
+   *  marks a stage the server reports stuck; `"reverted"` on every stage shows a
+   *  rolled-back change. An explicit `state` wins over the derived one, and the
+   *  stage is then inert — no interactive gate boxes, no Advance button. */
+  state?: "done" | "current" | "upcoming" | "blocked" | "reverted";
 };
 
 export type LifecycleStepperProps = {
@@ -1080,6 +1086,10 @@ export type LifecycleStepperProps = {
   currentStageKey: string;
   /** Server-computed. The component never recomputes it from gate state. */
   canAdvance: boolean;
+  /** Shown under a disabled Advance once every current-stage gate is checked —
+   *  the non-gate reason the server knows (approval pending, no window). While
+   *  gates are incomplete the gate-count hint wins and this is not shown. */
+  blockedReason?: string;
   /** `done` is the NEXT value for the gate item. */
   onToggleGate?: (stageKey: string, gateKey: string, done: boolean) => void;
   onAdvance?: (fromStageKey: string) => void;
@@ -1133,11 +1143,21 @@ findings.
   past stage to read as done, pass `done: true`.
 - `canAdvance` is **server-computed and taken verbatim**. The component never
   derives it from gate state; a fully-checked gate with `canAdvance={false}`
-  stays disabled (and shows no hint, because the reason — approval, window — is
-  not something the component can know).
+  stays disabled. Pass `blockedReason` to explain why — it renders under the
+  button **only once every current-stage gate is checked** (while
+  `doneCount < total` the gate-count hint `"n/total gate checks to advance"`
+  wins and `blockedReason` is not shown). Without it the component stays silent,
+  as it cannot infer the reason.
 - `readOnly` disables every gate box and hides the Advance button entirely.
 - If `currentStageKey` matches **no** stage, every stage renders as `upcoming`
   and no Advance button shows. No crash.
+- An explicit `Stage.state` **wins over the derived state** — the component
+  renders `stage.state ?? <derived>`. Such a stage is inert: its gate boxes are
+  never interactive and it never shows an Advance button, even if
+  `currentStageKey` also points at it. `"blocked"` tints the node + label amber
+  (`--warn`), `"reverted"` muted red (`--crit`); plan-03 pins every stage to
+  `"reverted"` after a rollback and one stage to `"blocked"` when the pipeline
+  is stuck.
 
 ### Route / middleware surface
 

@@ -237,3 +237,83 @@ test("gate hint renders when present", () => {
   renderStepper();
   expect(screen.getByText("peer review")).toBeTruthy();
 });
+
+// --- Phase 1 amendment (plan-1a Task 8): blockedReason + Stage.state override ---
+
+test("blockedReason renders under a disabled Advance once every current-stage gate is checked", () => {
+  render(
+    <LifecycleStepper
+      stages={STAGES_ASSESS_COMPLETE}
+      currentStageKey="assess"
+      canAdvance={false}
+      blockedReason="Waiting on technical approval"
+      onAdvance={vi.fn()}
+    />,
+  );
+  expect(isDisabled(screen.getByRole("button", { name: /advance/i }))).toBe(
+    true,
+  );
+  expect(screen.getByText("Waiting on technical approval")).toBeTruthy();
+  // it stands in for the gate-count hint, which is not shown now
+  expect(screen.queryByText(/gate checks to advance/i)).toBeNull();
+});
+
+test("the gate-count hint still wins while gates are incomplete — blockedReason is ignored then", () => {
+  render(
+    <LifecycleStepper
+      stages={STAGES}
+      currentStageKey="assess"
+      canAdvance={false}
+      blockedReason="Waiting on technical approval"
+    />,
+  );
+  expect(screen.getByText("0/2 gate checks to advance")).toBeTruthy();
+  expect(screen.queryByText("Waiting on technical approval")).toBeNull();
+});
+
+test("an explicit Stage.state overrides the derived state — every step reverted, no Advance", () => {
+  const reverted: Stage[] = STAGES.map((s) => ({
+    ...s,
+    state: "reverted" as const,
+  }));
+  const { container } = render(
+    <LifecycleStepper
+      stages={reverted}
+      currentStageKey="assess"
+      canAdvance={false}
+    />,
+  );
+  const steps = container.querySelectorAll(`.${styles.step}`);
+  expect(steps).toHaveLength(3);
+  for (const step of steps) {
+    expect(step.matches(`.${styles.reverted}`)).toBe(true);
+    expect(step.matches(`.${styles.current}`)).toBe(false);
+  }
+  // a stage with an explicit state never shows an Advance button
+  expect(screen.queryByRole("button", { name: /advance/i })).toBeNull();
+});
+
+test("a stage with an explicit state override is inert — gates non-interactive, no Advance", async () => {
+  const user = userEvent.setup();
+  const onToggleGate = vi.fn();
+  const blocked: Stage[] = STAGES.map((s) =>
+    s.key === "assess" ? { ...s, state: "blocked" as const } : s,
+  );
+  const { container } = render(
+    <LifecycleStepper
+      stages={blocked}
+      currentStageKey="assess"
+      canAdvance={false}
+      onToggleGate={onToggleGate}
+    />,
+  );
+  const assessStep = container.querySelectorAll(`.${styles.step}`)[1];
+  expect(assessStep?.matches(`.${styles.blocked}`)).toBe(true);
+
+  const box = screen.getByRole("checkbox", { name: "B" });
+  expect(isDisabled(box)).toBe(true);
+  await user.click(box);
+  expect(onToggleGate).not.toHaveBeenCalled();
+
+  expect(screen.queryByRole("button", { name: /advance/i })).toBeNull();
+});

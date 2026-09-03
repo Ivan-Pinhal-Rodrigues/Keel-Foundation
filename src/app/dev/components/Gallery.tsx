@@ -200,6 +200,28 @@ const INITIAL_LIFECYCLE: Stage[] = [
 
 const CURRENT_STAGE_KEY = "assess";
 
+/** `assess` current with every gate checked — for the blocked-Advance demo: the
+ *  gates are complete but the server still returns `canAdvance: false`, and
+ *  `blockedReason` explains why. */
+const LIFECYCLE_ASSESS_DONE: Stage[] = INITIAL_LIFECYCLE.map((s) =>
+  s.key === "assess"
+    ? { ...s, gate: s.gate.map((g) => ({ ...g, done: true })) }
+    : s,
+);
+
+/** The current stage pinned to `blocked` — the server reports the pipeline
+ *  stuck here; the stage is inert (amber node + label, no Advance). */
+const LIFECYCLE_BLOCKED_STAGE: Stage[] = INITIAL_LIFECYCLE.map((s) =>
+  s.key === "assess" ? { ...s, state: "blocked" as const } : s,
+);
+
+/** Every stage pinned to `reverted` — a rolled-back change reads as reverted,
+ *  not as an un-started stepper (all `upcoming`). */
+const LIFECYCLE_REVERTED: Stage[] = INITIAL_LIFECYCLE.map((s) => ({
+  ...s,
+  state: "reverted" as const,
+}));
+
 export function Gallery() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [lifecycle, setLifecycle] = useState<Stage[]>(INITIAL_LIFECYCLE);
@@ -484,6 +506,46 @@ export function Gallery() {
                   currentStageKey={CURRENT_STAGE_KEY}
                   canAdvance={false}
                   readOnly
+                />
+              </div>
+            </div>
+            <div style={{ ...twoUp, marginTop: 20 }}>
+              <div>
+                <p style={captionStyle}>
+                  Blocked on a non-gate reason — every current-stage gate is
+                  checked, but the server still returns{" "}
+                  <code>canAdvance: false</code>. <code>blockedReason</code>{" "}
+                  shows under the disabled Advance.
+                </p>
+                <LifecycleStepper
+                  stages={LIFECYCLE_ASSESS_DONE}
+                  currentStageKey={CURRENT_STAGE_KEY}
+                  canAdvance={false}
+                  blockedReason="Waiting on technical approval"
+                />
+              </div>
+              <div>
+                <p style={captionStyle}>
+                  Stage pinned <code>state: &quot;blocked&quot;</code> — the
+                  server reports the pipeline stuck here. Amber node + label,
+                  and the stage is inert (no Advance, gates non-interactive).
+                </p>
+                <LifecycleStepper
+                  stages={LIFECYCLE_BLOCKED_STAGE}
+                  currentStageKey={CURRENT_STAGE_KEY}
+                  canAdvance={false}
+                />
+              </div>
+              <div>
+                <p style={captionStyle}>
+                  Rolled back — every stage carries an explicit{" "}
+                  <code>state: &quot;reverted&quot;</code> that overrides the
+                  derived state.
+                </p>
+                <LifecycleStepper
+                  stages={LIFECYCLE_REVERTED}
+                  currentStageKey={CURRENT_STAGE_KEY}
+                  canAdvance={false}
                 />
               </div>
             </div>

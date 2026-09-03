@@ -7,9 +7,14 @@
  * plus `.step.done` / `.step.current` / `.step.upcoming`.
  * Rule bodies are copied with identical values.
  *
+ * `.step.blocked` / `.step.reverted` (plan-1a Task 8) are new: server-set
+ * `Stage.state` overrides for a stuck stage (amber) / a rolled-back change
+ * (muted red). They re-point `--c` at `--warn` / `--crit` and reuse the
+ * `.refNum` numbered-node look.
+ *
  * `--c` (the stage accent) is pinned to `--accent` on `.stepper`; the prototype
  * threaded it per-stage from the ITIL phase colour, but the frozen contract has
- * no tone field.
+ * no tone field (bar the `blocked` / `reverted` overrides above).
  *
  * `.advance` is the Advance button. The prototype styled it with `.btn.primary`
  * (~line 234) + `.btn[disabled]` (~line 484); those declarations are folded in
@@ -96,6 +101,25 @@
   color: var(--c);
   border-color: var(--c);
 }
+
+/* Server-set `Stage.state` overrides. `blocked` keeps the current-stage ring in
+ * amber (a stage the pipeline is stuck on); `reverted` is a quieter muted-red
+ * outline (a rolled-back change — backwards, not active). The node number + the
+ * border come from `.refNum` above via the `--c` swap; the label follows. */
+.step.blocked {
+  --c: var(--warn);
+}
+.step.reverted {
+  --c: var(--crit);
+}
+.step.blocked .stepNode {
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--c) 22%, transparent);
+}
+.step.blocked .stepLabel,
+.step.reverted .stepLabel {
+  color: var(--c);
+}
+
 .stepMain {
   padding-bottom: 16px;
   min-width: 0;
