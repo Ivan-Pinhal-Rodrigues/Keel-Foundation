@@ -28,6 +28,7 @@ Interfaces changed after the Phase 0 freeze. Each was reviewed and agreed with a
 - **plan-1a Task 5** — record-of-fact tables (`AuditEvent`, `ApprovalDecision`, `PostImplementationReview`) are append-only for `keel_app` at the DB privilege level (§2). `20260903125809_audit_default_privileges` revokes `UPDATE, DELETE` on `ApprovalDecision` and `PostImplementationReview` — both predate `20260901200800_audit_grants` and were granted full DML by its `GRANT … ON ALL TABLES IN SCHEMA`. New gate check `scripts/check-migrations.mjs` (in `pnpm test` and `pnpm check:migrations`) fails if any record-of-fact table is mutable by the runtime role, or if a migration folder breaks the `<14-digit UTC ts>_<snake>` name / has a colliding timestamp. Convention doc: [`docs/migrations.md`](docs/migrations.md). Consumed by plan-03 (`ApprovalDecision`, PIR writes), plan-08 (up/down/up harness).
 - **plan-1a Task 7** — `src/lib/api/client.ts` added (§7): `apiFetch<T>(path, { method, body, schema, signal })` + `ApiError` / `ApiErrorBody`, the browser-side typed `fetch` wrapper `DESIGN.md` §8 promised. Non-2xx → `throw new ApiError(status, body)`; a 204 / empty body → `undefined`; a `schema` parses and types the 2xx body, a mismatch throwing `ZodError` not `ApiError`; a transport failure rejects untouched. Response-schema convention: `src/lib/api/schemas/README.md` — request schema always (`<verb><Noun>Body`), response schema (`<noun>Response`) where a client needs the shape; Phase 0's schema files are not retrofitted. Consumed by every Phase 1 client component — plan-01 (demand UI), plan-02 (incident UI), plan-03 (change UI), plan-04 (dashboards + portal).
 - **plan-1a Task 8** — `LifecycleStepperProps` gains `blockedReason?: string` (rendered under a disabled Advance once every current-stage gate is checked — the non-gate reason: approval pending, no window; while gates are incomplete the gate-count hint still wins) and `Stage` gains `state?: "done" | "current" | "upcoming" | "blocked" | "reverted"`, an override that wins over the state derived from `currentStageKey` + array order. A stage with an explicit `state` is inert (no interactive gates, no Advance button); `"blocked"` / `"reverted"` add amber (`--warn`) / muted-red (`--crit`) node + label tints. Additive — an unset `state` and unset `blockedReason` are exactly the Phase 0 behaviour. Consumed by plan-03 (the change drawer — a rolled-back change renders every stage `reverted`; an approval-pending change shows `blockedReason` under a stuck Advance).
+- **plan-1a Task 9** — `DataTableProps.onRowClick` is now **optional** and `getRowId` moved above it in the type. A read-only display table (dashboards, portal) omits `onRowClick` and renders inert — no activator, no `<tr>` handler, no affordance. When set, row activation is a visually-hidden `<button>` in the first cell (keyboard path) plus a guarded `onClick` on the `<tr>` (mouse path); `role="row"` stays on the `<tr>`, with no `tabIndex` / `onKeyDown` — Phase 0's `<tr role="button">` around `<td>` gridcells was invalid ARIA. The `<tr>` guard early-returns when `event.target.closest("a,button,input,select,textarea,label")` is truthy, so an interactive element inside a `cell` (an actions column) fires only its own handler: **no `stopPropagation` needed**, superseding the Phase 0 consumer note. Additive for existing callers that already pass `onRowClick`. Consumed by plan-01 Task 5 (demand register), plan-02 (incident register), plan-04 (dashboards + portal).
 
 ---
 
@@ -985,8 +986,10 @@ export type EnvTagProps = { env: Env };
 
 ### `DataTable` — `src/components/DataTable/DataTable.tsx`
 
-Generic scrollable table. Client component — rows carry `onRowClick` and are
-keyboard-activatable. All cell content comes from `column.cell`; the component
+Generic scrollable table. Client component. `onRowClick` is **optional** — set it
+and each row is activatable through a visually-hidden `<button>` in its first
+cell (the `<tr>` keeps `role="row"`); omit it for a read-only data display and
+the rows are inert. All cell content comes from `column.cell`; the component
 owns only the frame, header, and row affordance. See **Consumer notes**.
 
 ```ts
@@ -1001,9 +1004,13 @@ export type Column<R> = {
 export type DataTableProps<R> = {
   columns: Column<R>[];
   rows: R[];
-  onRowClick: (row: R) => void;
   getRowId: (row: R) => string;
-  /** Accessible name for the table (dashboards render several per page). */
+  /** Row activation. Optional — omit for a read-only table (rows carry no
+   *  affordance at all). When set, each row gets a visually-hidden activator
+   *  <button> in its first cell. */
+  onRowClick?: (row: R) => void;
+  /** Accessible name for the table (dashboards render several per page). Also
+   *  seeds each row activator's label: `Open <label>: <first-column text>`. */
   label?: string;
 };
 ```
@@ -1125,13 +1132,27 @@ findings.
 
 ### DataTable
 
-- Rows are `<tr role="button">` with `onClick` **and** an Enter / Space
-  `onKeyDown`. If a `cell` renders its own interactive element (a link or
-  button), that element's handler **must call `e.stopPropagation()`**, or use a
-  dedicated non-clickable actions column — otherwise the row's `onRowClick` also
-  fires on every click of the inner control.
-- Always pass `label` — it is the table's accessible name, and dashboards render
-  several tables per page.
+- **`onRowClick` is optional.** Omit it for a read-only table (a dashboard data
+  display): the rows then have no activator, no `<tr>` click handler, no
+  affordance — the table is inert. Team D's read-only registers must not pass a
+  no-op.
+- When `onRowClick` is set, the row affordance is a **visually-hidden `<button>`
+  as the first child of the first cell**, not `role="button"` on the `<tr>` (a
+  button cannot contain `<td>` gridcells — invalid ARIA). The `<tr>` keeps its
+  native `role="row"` and gets **no `tabIndex` and no `onKeyDown`**. Keyboard:
+  Tab to the button, Enter / Space to activate. Mouse: a guarded `onClick` on
+  the `<tr>` fires `onRowClick` for a click anywhere on the row _except_ one
+  whose `event.target.closest("a,button,input,select,textarea,label")` is
+  truthy.
+- **An actions column just works.** A `cell` that renders its own link, button
+  or input is skipped by that guard and receives only its own click — **no
+  `e.stopPropagation()` and no dedicated non-clickable column needed** (this
+  supersedes the Phase 0 rule). The control must be one of those real elements;
+  a bare `<div onClick>` in a cell would still fall through to the row.
+- Always pass `label` — it is the table's accessible name (dashboards render
+  several tables per page) **and** seeds each row activator's accessible name,
+  `Open <label>: <first-column text>` (or just `Open <label>` when the first
+  column does not render plain text, e.g. a wrapped/element cell).
 
 ### LifecycleStepper
 

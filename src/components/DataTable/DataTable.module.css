@@ -13,10 +13,17 @@
  *                      would otherwise override (center / bold).
  *  - .trow   -> .tr  : 52px min row height (was `min-height`), bottom border
  *                      that drops on the last row, `--surface-2` hover,
- *                      `transition:background .1s`. `cursor:pointer` +
- *                      inset focus ring: the prototype row was a <button>; the
- *                      ring is inset so `.table-wrap { overflow:hidden }` can't
- *                      clip it.
+ *                      `transition:background .1s`. The prototype row was a
+ *                      <button>; a <tr role="button"> around <td> gridcells is
+ *                      invalid ARIA, so an *activatable* row (one whose table
+ *                      was given `onRowClick`) instead carries a visually-hidden
+ *                      `.rowActivator` <button> in its first cell (the keyboard
+ *                      path) plus a guarded `onClick` on the <tr> (the mouse
+ *                      path — see DataTable.tsx). `cursor:pointer`, the
+ *                      `--surface-2` hover and the inset focus ring (inset so
+ *                      `.table-wrap { overflow:hidden }` can't clip it) are all
+ *                      gated on `:has(.rowActivator …)` — a read-only table's
+ *                      rows are inert.
  * Dropped as demo-specific: `.table { min-width:940px }` (sized for the
  * prototype's 7 fixed columns; the scroll container handles overflow for any
  * width). `border-collapse:collapse` is new — required for real table borders.
@@ -67,15 +74,21 @@
   height: 52px;
   border-bottom: 1px solid var(--border);
   transition: background 0.1s;
-  cursor: pointer;
 }
 .tr:last-child {
   border-bottom: none;
 }
-.tr:hover {
+
+/* Affordances belong to an *activatable* row only — one whose table was given
+   `onRowClick`, so it carries a `.rowActivator` button and a guarded row
+   `onClick`. A read-only table's rows get none of this. */
+.tr:has(.rowActivator) {
+  cursor: pointer;
+}
+.tr:has(.rowActivator):hover {
   background: var(--surface-2);
 }
-.tr:focus-visible {
+.tr:has(.rowActivator:focus-visible) {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
@@ -85,4 +98,24 @@
   font-size: 13px;
   color: var(--text-2);
   vertical-align: middle;
+  /* Scope the absolutely-positioned .rowActivator to its own cell. */
+  position: relative;
+}
+
+/* Row activator: a real, focusable <button> that is visually hidden (NOT
+   display:none — it must stay in the tab order and be nameable by a screen
+   reader). It carries the row's accessible name and is the keyboard path to
+   `onRowClick`; mouse users get the whole row via the guarded `onClick` on the
+   <tr>. */
+.rowActivator {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
 }

@@ -28,10 +28,14 @@ function renderTable(onRowClick: (row: Row) => void = vi.fn()) {
       rows={ROWS}
       onRowClick={onRowClick}
       getRowId={(r) => r.id}
+      label="Changes"
     />,
   );
   return { onRowClick };
 }
+
+/** The visually-hidden activator buttons, one per row, named `Open …`. */
+const activators = () => screen.getAllByRole("button", { name: /open/i });
 
 test("renders one header cell per column and one body cell per column per row", () => {
   renderTable();
@@ -48,37 +52,116 @@ test("both rows render without a missing-key warning", () => {
   renderTable();
   expect(screen.getByText("Migrate auth")).toBeTruthy();
   expect(screen.getByText("Rotate certs")).toBeTruthy();
-  expect(screen.getAllByRole("button")).toHaveLength(2); // one activatable row each
+  expect(activators()).toHaveLength(2); // one activator button per row
   expect(
     err.mock.calls.some((c) => String(c[0]).toLowerCase().includes("key")),
   ).toBe(false);
   err.mockRestore();
 });
 
-test("onRowClick fires with the exact row object on click", async () => {
+test("with onRowClick: an activator button per row calls it with that row", async () => {
   const user = userEvent.setup();
   const onRowClick = vi.fn();
-  renderTable(onRowClick);
-  await user.click(screen.getByText("Migrate auth"));
+  render(
+    <DataTable
+      columns={COLUMNS}
+      rows={ROWS}
+      getRowId={(r) => r.id}
+      onRowClick={onRowClick}
+      label="Changes"
+    />,
+  );
+
+  const btns = activators();
+  expect(btns).toHaveLength(2);
+  // the label is `Open <label>: <first-column text>`
+  expect(btns[0]?.getAttribute("aria-label")).toBe("Open Changes: CHG-1");
+
+  await user.click(btns[0]!);
   expect(onRowClick).toHaveBeenCalledTimes(1);
   expect(onRowClick).toHaveBeenCalledWith(ROWS[0]);
+
+  // the <tr> is a plain row — not itself a button, not focusable
+  const bodyRow = screen.getAllByRole("row")[1];
+  expect(bodyRow?.hasAttribute("role")).toBe(false);
+  expect(bodyRow?.hasAttribute("tabindex")).toBe(false);
 });
 
 test("onRowClick fires with the exact row object on keyboard activation", async () => {
   const user = userEvent.setup();
   const onRowClick = vi.fn();
   renderTable(onRowClick);
-  const rows = screen.getAllByRole("button");
-  expect(rows).toHaveLength(2);
+  const btns = activators();
+  expect(btns).toHaveLength(2);
 
-  rows[1]?.focus();
+  btns[1]?.focus();
   await user.keyboard("{Enter}");
   expect(onRowClick).toHaveBeenCalledWith(ROWS[1]);
 
   onRowClick.mockClear();
-  rows[0]?.focus();
+  btns[0]?.focus();
   await user.keyboard(" ");
   expect(onRowClick).toHaveBeenCalledWith(ROWS[0]);
+});
+
+test("without onRowClick: no activator, no tabindex, rows are inert", () => {
+  render(<DataTable columns={COLUMNS} rows={ROWS} getRowId={(r) => r.id} />);
+  expect(screen.queryAllByRole("button")).toHaveLength(0);
+  for (const bodyRow of screen.getAllByRole("row").slice(1)) {
+    expect(bodyRow.hasAttribute("role")).toBe(false);
+    expect(bodyRow.hasAttribute("tabindex")).toBe(false);
+  }
+});
+
+test("an interactive cell does not trigger onRowClick", async () => {
+  const user = userEvent.setup();
+  const onRowClick = vi.fn();
+  const withAction: Column<Row>[] = [
+    ...COLUMNS,
+    {
+      key: "act",
+      header: "",
+      cell: (r) => (
+        <button type="button" onClick={() => {}}>
+          edit {r.id}
+        </button>
+      ),
+    },
+  ];
+  render(
+    <DataTable
+      columns={withAction}
+      rows={ROWS}
+      getRowId={(r) => r.id}
+      onRowClick={onRowClick}
+    />,
+  );
+
+  await user.click(screen.getByRole("button", { name: /edit CHG-1/i }));
+  expect(onRowClick).not.toHaveBeenCalled();
+});
+
+test("the activator label falls back to `Open <label>` when the first cell is not plain text", () => {
+  const cols: Column<Row>[] = [
+    {
+      key: "id",
+      header: "ID",
+      cell: (r) => <span className="mono">{r.id}</span>,
+    },
+    { key: "title", header: "Title", cell: (r) => r.title },
+  ];
+  render(
+    <DataTable
+      columns={cols}
+      rows={ROWS}
+      getRowId={(r) => r.id}
+      onRowClick={vi.fn()}
+      label="Change register"
+    />,
+  );
+  for (const btn of activators()) {
+    expect(btn.getAttribute("aria-label")).toBe("Open Change register");
+  }
 });
 
 test("names the table via aria-label only when label is given", () => {

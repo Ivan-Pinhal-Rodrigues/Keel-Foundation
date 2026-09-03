@@ -1,6 +1,6 @@
 "use client";
 
-import type { KeyboardEvent, ReactNode } from "react";
+import type { MouseEvent, ReactNode } from "react";
 import styles from "./DataTable.module.css";
 
 export type Column<R> = {
@@ -14,15 +14,47 @@ export type Column<R> = {
 export type DataTableProps<R> = {
   columns: Column<R>[];
   rows: R[];
-  onRowClick: (row: R) => void;
   getRowId: (row: R) => string;
-  /** Accessible name for the table (dashboards render several per page). */
+  /**
+   * Row activation. **Optional** — omit it for a read-only table (a dashboard
+   * data display), and the rows carry no affordance at all. When set, each row
+   * gets a visually-hidden activator `<button>` in its first cell.
+   */
+  onRowClick?: (row: R) => void;
+  /**
+   * Accessible name for the table (dashboards render several per page). Also
+   * seeds each row activator's label — `Open <label>: <first-column text>`.
+   */
   label?: string;
 };
 
+/** Interactive descendants of a row whose own click is theirs to handle — a
+ *  click landing on one of these must not also fire the row's `onRowClick`. */
+const INTERACTIVE_IN_CELL = "a,button,input,select,textarea,label";
+
+/** `Open <label>: <first cell>` when the first cell renders plain text, else
+ *  `Open <label>` — a generic but honest fallback. */
+function rowActivatorLabel(
+  firstCell: ReactNode,
+  label: string | undefined,
+): string {
+  const base = label ?? "row";
+  return typeof firstCell === "string" || typeof firstCell === "number"
+    ? `Open ${base}: ${firstCell}`
+    : `Open ${base}`;
+}
+
 /**
- * Generic scrollable table. Client component — rows carry an `onRowClick`
- * handler and are keyboard-activatable (`role="button"` + Enter / Space).
+ * Generic scrollable table. Client component.
+ *
+ * `onRowClick` is optional. Pass it and each row is activatable: keyboard users
+ * Tab to a visually-hidden `<button>` in the row's first cell and press Enter /
+ * Space; mouse users click anywhere on the row (a guarded `onClick` on the
+ * `<tr>` that ignores clicks landing on an interactive cell control, so an
+ * actions column needs no `stopPropagation`). Omit `onRowClick` and the table
+ * is inert — a pure data display. Either way the `<tr>` keeps its native
+ * `role="row"` (a `<tr role="button">` around `<td>` gridcells is invalid ARIA).
+ *
  * All cell content comes from `column.cell`; this component owns only the
  * frame, header, and row affordance.
  */
@@ -56,27 +88,40 @@ export function DataTable<R>({
           </thead>
           <tbody>
             {rows.map((row) => {
-              const activate = () => onRowClick(row);
-              const onKeyDown = (event: KeyboardEvent<HTMLTableRowElement>) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  activate();
-                }
-              };
+              const onRowMouseActivate = onRowClick
+                ? (event: MouseEvent<HTMLTableRowElement>) => {
+                    if (
+                      (event.target as HTMLElement).closest(INTERACTIVE_IN_CELL)
+                    ) {
+                      return;
+                    }
+                    onRowClick(row);
+                  }
+                : undefined;
               return (
                 <tr
                   key={getRowId(row)}
                   className={styles.tr}
-                  role="button"
-                  tabIndex={0}
-                  onClick={activate}
-                  onKeyDown={onKeyDown}
+                  onClick={onRowMouseActivate}
                 >
-                  {columns.map((col) => (
-                    <td key={col.key} className={styles.td}>
-                      {col.cell(row)}
-                    </td>
-                  ))}
+                  {columns.map((col, colIndex) => {
+                    const content = col.cell(row);
+                    return (
+                      <td key={col.key} className={styles.td}>
+                        {colIndex === 0 && onRowClick ? (
+                          <button
+                            type="button"
+                            className={styles.rowActivator}
+                            aria-label={rowActivatorLabel(content, label)}
+                            onClick={() => onRowClick(row)}
+                          >
+                            {rowActivatorLabel(content, label)}
+                          </button>
+                        ) : null}
+                        {content}
+                      </td>
+                    );
+                  })}
                 </tr>
               );
             })}

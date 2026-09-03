@@ -149,6 +149,26 @@ const CHANGE_COLUMNS: Column<ChangeRow>[] = [
   { key: "owner", header: "Owner", cell: (r) => r.owner },
 ];
 
+/** The same register plus a trailing actions column — the cell's own button
+ *  fires only its own handler, never the row's `onRowClick`. */
+const CHANGE_COLUMNS_WITH_ACTIONS: Column<ChangeRow>[] = [
+  ...CHANGE_COLUMNS,
+  {
+    key: "actions",
+    header: "",
+    width: "96px",
+    cell: (r) => (
+      <button
+        type="button"
+        style={{ ...button, padding: "5px 10px", fontWeight: 500 }}
+        onClick={() => toast(`Editing ${r.id}`)}
+      >
+        Edit
+      </button>
+    ),
+  },
+];
+
 const PIP_STAGES = ["Intake", "Assess", "Build", "Review", "Deploy"];
 
 /** Seed for the interactive stepper. `assess` is the current stage; its gate is
@@ -410,9 +430,38 @@ export function Gallery() {
           </Section>
 
           <Section title="DataTable">
+            <p style={captionStyle}>
+              Interactive — <code>onRowClick</code> set. Tab to the
+              visually-hidden activator button in a row&rsquo;s first cell and
+              press Enter, or click anywhere on the row.
+            </p>
             <DataTable
               label="Change register"
               columns={CHANGE_COLUMNS}
+              rows={CHANGE_ROWS}
+              getRowId={(r) => r.id}
+              onRowClick={(r) => toast(`Opened ${r.id}`)}
+            />
+
+            <p style={{ ...captionStyle, marginTop: 18 }}>
+              Read-only — <code>onRowClick</code> omitted. No activator, no
+              affordance; the rows are inert (a pure data display).
+            </p>
+            <DataTable
+              label="Change register (read-only)"
+              columns={CHANGE_COLUMNS}
+              rows={CHANGE_ROWS}
+              getRowId={(r) => r.id}
+            />
+
+            <p style={{ ...captionStyle, marginTop: 18 }}>
+              With an actions column — the cell&rsquo;s own button fires only
+              its handler (<code>Editing …</code>), never the row&rsquo;s{" "}
+              <code>onRowClick</code> (<code>Opened …</code>).
+            </p>
+            <DataTable
+              label="Change register with actions"
+              columns={CHANGE_COLUMNS_WITH_ACTIONS}
               rows={CHANGE_ROWS}
               getRowId={(r) => r.id}
               onRowClick={(r) => toast(`Opened ${r.id}`)}
