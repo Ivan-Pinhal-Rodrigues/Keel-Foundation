@@ -13,8 +13,9 @@ constraints, GRANT/REVOKE) live only in the migration files.
 - The timestamp is `date -u +%Y%m%d%H%M%S` (UTC, seconds precision). Prisma
   generates it; never hand-edit it.
 - The description is lowercase `a-z0-9_` only.
-- Folders sort lexically into apply order — `scripts/check-migrations.mjs`
-  asserts both the name shape and that the on-disk order is ascending.
+- Folders sort lexically into apply order (the timestamp prefix makes lexical ==
+  chronological). `scripts/check-migrations.mjs` asserts the name shape and that
+  no two migrations share a timestamp prefix.
 
 ## Every migration carries a `-- Down:` comment
 
@@ -34,9 +35,10 @@ The gate runs `check:migrations`; a full `up → down → up` harness is plan-08
 ## Record-of-fact tables are append-only at the DB privilege level
 
 `keel_app` (the runtime role) has `SELECT, INSERT, UPDATE, DELETE` on every table
-by default — `20260901200800_audit_grants` sets that as the default privilege for
-all future tables. A **record-of-fact** table (a permanent, immutable record of
-something that happened) must give that back:
+— `20260901200800_audit_grants` grants it `ON ALL TABLES IN SCHEMA` and sets the
+same as the default privilege for tables created later. A **record-of-fact**
+table (a permanent, immutable record of something that happened) must give the
+mutating half back:
 
 ```sql
 -- Down: GRANT UPDATE, DELETE ON "<table>" TO keel_app;
@@ -55,7 +57,11 @@ Hardcoding `"public"` would leave every test schema unrevoked.
 Ship the REVOKE **in the same migration that creates the table.**
 `scripts/check-migrations.mjs` connects as `keel_app` and fails the gate if any
 table in its `RECORD_OF_FACT` list is still `UPDATE`/`DELETE`-able — add the new
-table to that list in the same change.
+table to that list in the same change. The two new-in-2026-09 tables
+(`ApprovalDecision`, `PostImplementationReview`) predate `audit_grants`, so
+`20260903125809_audit_default_privileges` REVOKEs them retroactively;
+`src/server/audit/__tests__/record-of-fact.test.ts` proves the lock holds in a
+disposable schema.
 
 Current record-of-fact tables:
 
@@ -64,6 +70,10 @@ Current record-of-fact tables:
 | `AuditEvent`               | `20260901200800_audit_grants`             |
 | `ApprovalDecision`         | `20260903125809_audit_default_privileges` |
 | `PostImplementationReview` | `20260903125809_audit_default_privileges` |
+
+The grant half of `check:migrations` reaches the DB via `docker compose exec -T
+db psql` (no `pg` client dep). plan-08's CI must bring the compose stack up
+before the gate, or repoint that query at `DATABASE_URL` over TCP.
 
 ## Raw-SQL migrations
 

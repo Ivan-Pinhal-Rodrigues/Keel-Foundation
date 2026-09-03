@@ -4,11 +4,11 @@
 -- migration covers the ones that already existed when the convention landed.
 --
 -- Why this is needed: 20260901200800_audit_grants runs
---   ALTER DEFAULT PRIVILEGES FOR ROLE keel_migrate IN SCHEMA <s>
---     GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO keel_app
--- so every table created afterwards is fully mutable by the runtime role.
--- ApprovalDecision (20260901193100_approvals_support) and
--- PostImplementationReview (20260901162656_work_items) inherited full DML.
+--   GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA <s> TO keel_app
+-- and sets the same as the default privilege (ALTER DEFAULT PRIVILEGES) for
+-- tables created after it. ApprovalDecision (20260901193100_approvals_support)
+-- and PostImplementationReview (20260901162656_work_items) both predate
+-- audit_grants, so they were granted full DML by its ON ALL TABLES line.
 --
 -- Schema-aware via current_schema() (same as audit_grants): production runs
 -- ?schema=public; the integration-test harness runs ?schema=test_<hex>.

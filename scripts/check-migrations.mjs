@@ -2,13 +2,13 @@
 // the integration tests). Two assertions:
 //
 //   (a) every folder in prisma/migrations/ is `<14-digit UTC timestamp>_<snake>`
-//       and the folders are on disk in ascending lexical order (= apply order);
+//       and no two share a timestamp prefix (apply order stays unambiguous);
 //
 //   (b) no record-of-fact table (append-only by design) is UPDATE/DELETE-able by
-//       the runtime role. `ALTER DEFAULT PRIVILEGES ... GRANT ... UPDATE, DELETE`
-//       in 20260901200800_audit_grants makes every new table fully mutable by
-//       keel_app; each record-of-fact table must REVOKE that in the migration
-//       that creates it (see docs/migrations.md).
+//       the runtime role. 20260901200800_audit_grants grants keel_app full DML
+//       `ON ALL TABLES` and sets the same as the default for later tables; each
+//       record-of-fact table must REVOKE UPDATE, DELETE in its own migration
+//       (see docs/migrations.md).
 //
 // Node ESM script — no TypeScript, no dependencies. `process` / `console` / URL
 // are Node globals.
@@ -36,12 +36,17 @@ const NAME_RE = /^\d{14}_[a-z0-9_]+$/;
 const problems = [];
 
 // ---------------------------------------------------------------------------
-// (a) migration folder naming + ordering
+// (a) migration folder naming + no colliding timestamps
 // ---------------------------------------------------------------------------
 
+// readdirSync order is filesystem-dependent (ext4 returns hash order), so it is
+// not a reliable signal. Sort into apply order — lexical == chronological, since
+// every name is prefixed with a zero-padded 14-digit UTC timestamp — and instead
+// guard the thing that actually matters: no two migrations share a timestamp.
 const names = readdirSync(MIGRATIONS_DIR, { withFileTypes: true })
   .filter((entry) => entry.isDirectory())
-  .map((entry) => entry.name);
+  .map((entry) => entry.name)
+  .sort();
 
 for (const name of names) {
   if (!NAME_RE.test(name)) {
@@ -52,12 +57,14 @@ for (const name of names) {
   }
 }
 
-const sorted = [...names].sort();
-if (JSON.stringify(sorted) !== JSON.stringify(names)) {
+const stamps = names.map((name) => name.slice(0, 14));
+const collisions = [
+  ...new Set(stamps.filter((s, i) => stamps.indexOf(s) !== i)),
+];
+if (collisions.length > 0) {
   problems.push(
-    "migration folders are not in ascending order on disk:\n" +
-      `      on disk: ${names.join(", ")}\n` +
-      `      sorted:  ${sorted.join(", ")}`,
+    `two or more migrations share a timestamp prefix (${collisions.join(", ")}) — ` +
+      "regenerate one so the apply order is unambiguous",
   );
 }
 
@@ -152,6 +159,6 @@ if (problems.length > 0) {
 }
 
 console.log(
-  `check:migrations OK — ${names.length} migrations, naming + ordering clean; ` +
+  `check:migrations OK — ${names.length} migrations, names + timestamps clean; ` +
     `${RECORD_OF_FACT.length} record-of-fact tables append-only for "${dbUser}".`,
 );

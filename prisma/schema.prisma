@@ -415,6 +415,11 @@ model Change {
   @@index([ownerId])
 }
 
+// Record-of-fact table: append-only for the runtime role (keel_app) —
+// INSERT + SELECT only, no UPDATE/DELETE (migration
+// 20260903125809_audit_default_privileges, docs/migrations.md). A PIR is written
+// once. The createdAt/updatedAt columns exist for convention but the app must
+// never issue an .update()/.upsert() here — it will hit `permission denied`.
 model PostImplementationReview {
   id            String        @id @default(cuid())
   changeId      String        @unique
@@ -498,6 +503,12 @@ model ApprovalStep {
   @@unique([requestId, order])
 }
 
+// Record-of-fact table: append-only for the runtime role (keel_app) —
+// INSERT + SELECT only, no UPDATE/DELETE (migration
+// 20260903125809_audit_default_privileges, docs/migrations.md). A decision is a
+// permanent record. The createdAt/updatedAt columns exist for convention but the
+// app must never issue an .update()/.upsert() here — it will hit
+// `permission denied`.
 model ApprovalDecision {
   id                       String       @id @default(cuid())
   stepId                   String
