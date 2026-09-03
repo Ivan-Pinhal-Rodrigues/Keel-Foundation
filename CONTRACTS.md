@@ -24,6 +24,7 @@ Interfaces changed after the Phase 0 freeze. Each was reviewed and agreed with a
 - **plan-1a Task 1** — `src/server/auth/current.ts` added. Server components and layouts resolve the actor with `getCurrentActor()` / `whoami()` (read the cookie via `next/headers`). `getActor()` / `getActorOrNull()` (§6) remain **API-route-only** — they read the request context that only `withRequest` populates and throw / return null everywhere else. **Never call an audit-writing service from a server component** — `writeAudit` needs the request context and will throw `"no request context"`.
 - **plan-1a Task 2** — `scopeToClient` now fails closed: a guest with a null `clientId` (a data bug the new `user_guest_has_client` CHECK constraint prevents) gets an impossible-match `{ clientId: … }`, never `{}`. Spreading it into a `where` matches zero rows. Consumed by plan-01 Task 2's `listDemands`, plan-02, plan-04.
 - **plan-1a Task 3** — `serializePick` (allowlist) added to `src/server/policy/serialize.ts`; `serializeFor` is kept but marked internal-shaping-only (denylist — a new column leaks to guests by omission). `plan-01`'s `serializeDemand` and all Phase 1 guest serializers use `serializePick`, not `serializeFor`.
+- **plan-1a Task 4** — `addComment` / `listComments` (`src/server/modules/comment/index.ts`) take one `CommentSubject` (`{ type, id, clientId }`) instead of a bare `(subjectType, subjectId)`, and call `requireOwnClientOr404(actor, subject.clientId)` internally — a portal comment route that forgets the ownership check can no longer leak another client's `visibleToClient` thread. The action check (`authorize(actor, "comment.create", …)` for a write, the subject's own view check for a read) stays with the caller. `CommentSubjectType` is removed (superseded by `CommentSubject`). Consumed by plan-01 Task 6 (demand comments route), plan-02 (incident drawer), plan-03 (change drawer).
 
 ---
 
@@ -438,15 +439,20 @@ export function renderTemplate(
 ### `src/server/modules/comment/index.ts`
 
 The shared comment module — used by the demand / incident / change drawers and
-the guest portal. `subjectType` is stored capitalised. The caller is expected to
-have already run `authorize(actor, "comment.create", subject)` (or the matching
-view check); the guards here are a safety net, not the primary gate.
+the guest portal. `subject.type` is stored capitalised in `Comment.subjectType`.
+The caller still runs the **action** check — `authorize(actor, "comment.create",
+subject)` for a write, the subject's own view check for a read — but the subject
+now carries `clientId` and the module calls `requireOwnClientOr404` itself:
+ownership is no longer solely the caller's responsibility.
 
 ```ts
-export type CommentSubjectType = "Demand" | "Incident" | "Change";
+export type CommentSubject =
+  | { type: "Demand"; id: string; clientId: string | null }
+  | { type: "Incident"; id: string; clientId: string | null }
+  | { type: "Change"; id: string };
 
 /**
- * Create a comment on `subjectId`, audit it, and optionally notify one user.
+ * Create a comment on `subject`, audit it, and optionally notify one user.
  * Returns the RAW, unserialized `Comment` row — a route handler MUST pass it
  * through `serializeComment(actor, …)` (or re-list via `listComments`) before it
  * reaches a response.
@@ -455,8 +461,7 @@ export function addComment(
   tx: PrismaTransaction,
   input: {
     actor: Actor;
-    subjectType: CommentSubjectType;
-    subjectId: string;
+    subject: CommentSubject;
     body: string;
     /** Internal author's choice; default false. Ignored for guests. */
     visibleToClient?: boolean;
@@ -466,8 +471,7 @@ export function addComment(
 
 export function listComments(
   actor: Actor,
-  subjectType: string,
-  subjectId: string,
+  subject: CommentSubject,
   client: PrismaClient = prisma,
 ): Promise<SerializedComment[]>;
 ```
@@ -476,13 +480,17 @@ export function listComments(
 
 - A **guest** author's comment is always forced `visibleToClient = true`
   (`input.visibleToClient` is ignored for a guest).
-- A guest calling `addComment` **or** `listComments` with `subjectType ===
-"Change"` gets a `NotFoundError` (a guest must never learn a Change exists) —
-  even though the policy layer would return 403 for the same case. Route wiring
+- A guest calling `addComment` **or** `listComments` with a `Change` subject
+  gets a `NotFoundError` (a guest must never learn a Change exists) — even
+  though the policy layer would return 403 for the same case. Route wiring
   should prefer this module's 404.
-- `listComments` does **not** re-authorize subject visibility beyond that Change
-  guard. The caller runs `authorize` (or the view check) first; `listComments`
-  then only filters rows by `visibleToClient` for a guest.
+- The subject carries `clientId`; both entry points call
+  `requireOwnClientOr404(actor, subject.clientId)` for a Demand / Incident, so a
+  guest reaching another client's subject gets a `NotFoundError` (existence not
+  revealed). Internal actors pass through.
+- Beyond that ownership check, `listComments` does **not** re-authorize subject
+  visibility. The caller runs `authorize` (or the view check) first;
+  `listComments` then only filters rows by `visibleToClient` for a guest.
 
 ### `src/server/modules/comment/serialize.ts`
 

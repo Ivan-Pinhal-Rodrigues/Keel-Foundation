@@ -10,7 +10,7 @@ const db = withTestDb();
 
 /**
  * One per-file schema, shared across every test here, so each test scopes its
- * reads by a unique `subjectId`.
+ * reads by a unique `subject.id`.
  *
  * `addComment` writes an `AuditEvent`, so its calls run inside `runWithContext`
  * (the notify tests skip this because `emitNotification` writes no audit). The
@@ -70,15 +70,14 @@ async function mkGuest(clientId?: string) {
 }
 
 test("a GUEST author's comment is forced visibleToClient=true even when false is passed", async () => {
-  const { actor } = await mkGuest();
+  const { actor, clientId } = await mkGuest();
   const subjectId = `dem-${uniq()}`;
 
   const c = await withCtx(() =>
     db().$transaction((tx) =>
       addComment(tx, {
         actor,
-        subjectType: "Demand",
-        subjectId,
+        subject: { type: "Demand", id: subjectId, clientId },
         body: "please look",
         visibleToClient: false,
       }),
@@ -98,8 +97,7 @@ test("an internal author's comment defaults to visibleToClient=false, honours tr
     db().$transaction((tx) =>
       addComment(tx, {
         actor,
-        subjectType: "Incident",
-        subjectId,
+        subject: { type: "Incident", id: subjectId, clientId: null },
         body: "internal note",
       }),
     ),
@@ -110,8 +108,7 @@ test("an internal author's comment defaults to visibleToClient=false, honours tr
     db().$transaction((tx) =>
       addComment(tx, {
         actor,
-        subjectType: "Incident",
-        subjectId,
+        subject: { type: "Incident", id: subjectId, clientId: null },
         body: "for the client",
         visibleToClient: true,
       }),
@@ -122,29 +119,31 @@ test("an internal author's comment defaults to visibleToClient=false, honours tr
 
 test("listComments for a guest returns only visibleToClient rows", async () => {
   const { actor: internal } = await mkInternal();
-  const { actor: guest } = await mkGuest();
+  const { actor: guest, clientId } = await mkGuest();
   const subjectId = `dem-${uniq()}`;
 
   await withCtx(() =>
     db().$transaction(async (tx) => {
       await addComment(tx, {
         actor: internal,
-        subjectType: "Demand",
-        subjectId,
+        subject: { type: "Demand", id: subjectId, clientId },
         body: "visible",
         visibleToClient: true,
       });
       await addComment(tx, {
         actor: internal,
-        subjectType: "Demand",
-        subjectId,
+        subject: { type: "Demand", id: subjectId, clientId },
         body: "hidden",
         visibleToClient: false,
       });
     }),
   );
 
-  const seen = await listComments(guest, "Demand", subjectId, db());
+  const seen = await listComments(
+    guest,
+    { type: "Demand", id: subjectId, clientId },
+    db(),
+  );
   expect(seen).toHaveLength(1);
   expect(seen[0]!.body).toBe("visible");
 });
@@ -159,21 +158,23 @@ test("guest listComments masks internal authors, shows same-client guest names, 
     db().$transaction(async (tx) => {
       await addComment(tx, {
         actor: internalAuthor,
-        subjectType: "Incident",
-        subjectId,
+        subject: { type: "Incident", id: subjectId, clientId },
         body: "from keel",
         visibleToClient: true,
       });
       await addComment(tx, {
         actor: guestAuthor,
-        subjectType: "Incident",
-        subjectId,
+        subject: { type: "Incident", id: subjectId, clientId },
         body: "from a guest",
       });
     }),
   );
 
-  const rows = await listComments(guestReader, "Incident", subjectId, db());
+  const rows = await listComments(
+    guestReader,
+    { type: "Incident", id: subjectId, clientId },
+    db(),
+  );
   const byBody = Object.fromEntries(
     rows.map((r) => [r.body, r as { author?: string }]),
   );
@@ -197,21 +198,23 @@ test("listComments for an internal reader returns every row with real author ide
     db().$transaction(async (tx) => {
       await addComment(tx, {
         actor: author,
-        subjectType: "Change",
-        subjectId,
+        subject: { type: "Change", id: subjectId },
         body: "hidden note",
       });
       await addComment(tx, {
         actor: author,
-        subjectType: "Change",
-        subjectId,
+        subject: { type: "Change", id: subjectId },
         body: "shared note",
         visibleToClient: true,
       });
     }),
   );
 
-  const rows = await listComments(reader, "Change", subjectId, db());
+  const rows = await listComments(
+    reader,
+    { type: "Change", id: subjectId },
+    db(),
+  );
   expect(rows).toHaveLength(2);
   for (const r of rows) {
     const row = r as {
@@ -228,7 +231,7 @@ test("listComments for an internal reader returns every row with real author ide
 test("listComments rejects a guest reading a Change with NotFoundError", async () => {
   const { actor: guest } = await mkGuest();
   await expect(
-    listComments(guest, "Change", `chg-${uniq()}`, db()),
+    listComments(guest, { type: "Change", id: `chg-${uniq()}` }, db()),
   ).rejects.toBeInstanceOf(NotFoundError);
 });
 
@@ -239,11 +242,33 @@ test("addComment rejects a guest commenting on a Change with NotFoundError", asy
       db().$transaction((tx) =>
         addComment(tx, {
           actor: guest,
-          subjectType: "Change",
-          subjectId: `chg-${uniq()}`,
+          subject: { type: "Change", id: `chg-${uniq()}` },
           body: "hi",
         }),
       ),
+    ),
+  ).rejects.toBeInstanceOf(NotFoundError);
+});
+
+test("a guest commenting on / listing a Demand from another client → NotFoundError", async () => {
+  const guestOfC1: Actor = {
+    id: "g1",
+    kind: "GUEST",
+    hats: [],
+    clientId: "c1",
+  };
+
+  await expect(
+    listComments(guestOfC1, { type: "Demand", id: "d-of-c2", clientId: "c2" }),
+  ).rejects.toBeInstanceOf(NotFoundError);
+
+  await expect(
+    db().$transaction((tx) =>
+      addComment(tx, {
+        actor: guestOfC1,
+        subject: { type: "Demand", id: "d-of-c2", clientId: "c2" },
+        body: "x",
+      }),
     ),
   ).rejects.toBeInstanceOf(NotFoundError);
 });
@@ -256,8 +281,7 @@ test("addComment writes a comment.created audit event carrying the comment id", 
     db().$transaction((tx) =>
       addComment(tx, {
         actor,
-        subjectType: "Demand",
-        subjectId,
+        subject: { type: "Demand", id: subjectId, clientId: null },
         body: "note",
         visibleToClient: true,
       }),
@@ -281,8 +305,7 @@ test("addComment emits one COMMENTED notification for notifyUserId, none without
     db().$transaction((tx) =>
       addComment(tx, {
         actor,
-        subjectType: "Incident",
-        subjectId: withNotify,
+        subject: { type: "Incident", id: withNotify, clientId: null },
         body: "ping",
         notifyUserId: recipient.id,
       }),
@@ -300,8 +323,7 @@ test("addComment emits one COMMENTED notification for notifyUserId, none without
     db().$transaction((tx) =>
       addComment(tx, {
         actor,
-        subjectType: "Incident",
-        subjectId: noNotify,
+        subject: { type: "Incident", id: noNotify, clientId: null },
         body: "quiet",
       }),
     ),
@@ -321,8 +343,7 @@ test("a rollback of the surrounding transaction persists no comment, audit, or n
       db().$transaction(async (tx) => {
         await addComment(tx, {
           actor,
-          subjectType: "Demand",
-          subjectId,
+          subject: { type: "Demand", id: subjectId, clientId: null },
           body: "doomed",
           visibleToClient: true,
           notifyUserId: recipient.id,
