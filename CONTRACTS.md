@@ -17,6 +17,12 @@ in declaration form: the body is elided and a leading `async` is dropped — the
 prisma` style trailing parameters keep their default in the quote because the
 default is part of the callable contract (you may omit the argument).
 
+## Phase 1 amendments
+
+Interfaces changed after the Phase 0 freeze. Each was reviewed and agreed with all Phase 1 owners.
+
+- **plan-1a Task 1** — `src/server/auth/current.ts` added. Server components and layouts resolve the actor with `getCurrentActor()` / `whoami()` (read the cookie via `next/headers`). `getActor()` / `getActorOrNull()` (§6) remain **API-route-only** — they read the request context that only `withRequest` populates and throw / return null everywhere else. **Never call an audit-writing service from a server component** — `writeAudit` needs the request context and will throw `"no request context"`.
+
 ---
 
 ## 1. Identity & policy
@@ -568,6 +574,38 @@ export function getActor(): Promise<Actor>;
 /** Like `getActor` but `null` instead of throwing when unauthenticated. A
  *  genuine load failure (DB down) still propagates. */
 export function getActorOrNull(): Promise<Actor | null>;
+```
+
+### `src/server/auth/current.ts`
+
+Actor resolution for **React Server Components and layouts** — the RSC-side
+counterpart to `actor.ts`. Reads the session cookie via `next/headers` and
+resolves it against the database. `getActor()` / `getActorOrNull()` above do
+**not** work in an RSC render: they read the `withRequest` request context, and
+Next 15 does not run RSC renders inside it. Both functions here return `null`
+(never throw) when there is no usable session — a deactivated user or an
+expired / unknown token included. Do **not** call these from an `api/**` route
+(use `getActor()` inside `withRequest`), and do not call an audit-writing
+service from a server component (`writeAudit` needs the request context).
+
+```ts
+import type { $Enums } from "@prisma/client";
+
+export type Me = {
+  id: string;
+  kind: $Enums.UserKind;
+  hats: $Enums.Hat[];
+  clientId: string | null;
+  displayName: string;
+  email: string;
+};
+
+/** The current request's actor, for server components / layouts. */
+export function getCurrentActor(): Promise<Actor | null>;
+
+/** Like `getCurrentActor`, plus `displayName` + `email` for the AppShell user
+ *  block. */
+export function whoami(): Promise<Me | null>;
 ```
 
 ### `src/server/auth/credentials.ts`
