@@ -507,9 +507,13 @@ export type NotificationSpec = {
 export function emitNotification(tx: PrismaTransaction, spec: NotificationSpec): Promise<void>;
 ```
 
-- `src/lib/api/` — a typed `fetch` wrapper. Every endpoint has a Zod request
-  schema and a Zod response schema in `src/lib/api/schemas/`. The client infers
-  its types from those schemas; there is no code generation.
+- `src/lib/api/` — a typed `fetch` wrapper. **Built:
+  [`src/lib/api/client.ts`](../src/lib/api/client.ts)** — `apiFetch<T>(path,
+  { method, body, schema, signal })` + `ApiError`. Every endpoint has a Zod
+  request schema in `src/lib/api/schemas/`, and a response schema where a client
+  needs the response shape; `apiFetch` infers its result type from the response
+  schema passed to it. No code generation. Convention:
+  [`src/lib/api/schemas/README.md`](../src/lib/api/schemas/README.md).
 - The ported drawer and stepper components expose typed props documented in
   `00-foundation.md`.
 - `PrismaTransaction` is `Prisma.TransactionClient`.

@@ -26,6 +26,7 @@ Interfaces changed after the Phase 0 freeze. Each was reviewed and agreed with a
 - **plan-1a Task 3** — `serializePick` (allowlist) added to `src/server/policy/serialize.ts`; `serializeFor` is kept but marked internal-shaping-only (denylist — a new column leaks to guests by omission). `plan-01`'s `serializeDemand` and all Phase 1 guest serializers use `serializePick`, not `serializeFor`.
 - **plan-1a Task 4** — `addComment` / `listComments` (`src/server/modules/comment/index.ts`) take one `CommentSubject` (`{ type, id, clientId }`) instead of a bare `(subjectType, subjectId)`, and call `requireOwnClientOr404(actor, subject.clientId)` internally — a portal comment route that forgets the ownership check can no longer leak another client's `visibleToClient` thread. The action check (`authorize(actor, "comment.create", …)` for a write, the subject's own view check for a read) stays with the caller. `CommentSubjectType` is removed (superseded by `CommentSubject`). Consumed by plan-01 Task 6 (demand comments route), plan-02 (incident drawer), plan-03 (change drawer).
 - **plan-1a Task 5** — record-of-fact tables (`AuditEvent`, `ApprovalDecision`, `PostImplementationReview`) are append-only for `keel_app` at the DB privilege level (§2). `20260903125809_audit_default_privileges` revokes `UPDATE, DELETE` on `ApprovalDecision` and `PostImplementationReview` — both predate `20260901200800_audit_grants` and were granted full DML by its `GRANT … ON ALL TABLES IN SCHEMA`. New gate check `scripts/check-migrations.mjs` (in `pnpm test` and `pnpm check:migrations`) fails if any record-of-fact table is mutable by the runtime role, or if a migration folder breaks the `<14-digit UTC ts>_<snake>` name / has a colliding timestamp. Convention doc: [`docs/migrations.md`](docs/migrations.md). Consumed by plan-03 (`ApprovalDecision`, PIR writes), plan-08 (up/down/up harness).
+- **plan-1a Task 7** — `src/lib/api/client.ts` added (§7): `apiFetch<T>(path, { method, body, schema, signal })` + `ApiError` / `ApiErrorBody`, the browser-side typed `fetch` wrapper `DESIGN.md` §8 promised. Non-2xx → `throw new ApiError(status, body)`; a 204 / empty body → `undefined`; a `schema` parses and types the 2xx body, a mismatch throwing `ZodError` not `ApiError`; a transport failure rejects untouched. Response-schema convention: `src/lib/api/schemas/README.md` — request schema always (`<verb><Noun>Body`), response schema (`<noun>Response`) where a client needs the shape; Phase 0's schema files are not retrofitted. Consumed by every Phase 1 client component — plan-01 (demand UI), plan-02 (incident UI), plan-03 (change UI), plan-04 (dashboards + portal).
 
 ---
 
@@ -724,6 +725,61 @@ export function mapError(e: unknown): Response;
 | `GoneError`            | 410    | `{ error: "gone" }`                        |
 | `SegregationError`     | 409    | `{ error: "segregation", overrideAction }` |
 | anything else          | 500    | `{ error: "internal" }`                    |
+
+### `src/lib/api/client.ts`
+
+The browser-side typed `fetch` wrapper — the client mirror of `mapError`. Client
+components call `apiFetch` instead of hand-rolling `fetch()` with `as` casts. It
+runs in the browser and imports nothing server-only (`errors.ts`,
+`with-request.ts`, Prisma).
+
+```ts
+import type { ZodType } from "zod";
+
+/** The JSON error body every route produces via `mapError` (table above). */
+export type ApiErrorBody = {
+  error?: string;
+  overrideAction?: string;
+  issues?: unknown;
+};
+
+/** A non-2xx response. `body` is the parsed JSON error body, or `null`. */
+export class ApiError extends Error {
+  constructor(
+    public status: number,
+    public body: ApiErrorBody | null,
+  ) {
+    super(`api ${status}`);
+  }
+}
+
+export type ApiFetchOptions<T> = {
+  method?: "GET" | "POST" | "PATCH" | "DELETE";
+  body?: unknown; // serialised as JSON; sets content-type when present
+  schema?: ZodType<T>; // parses (and types) the 2xx body
+  signal?: AbortSignal;
+};
+
+export function apiFetch<T = unknown>(
+  path: string,
+  opts?: ApiFetchOptions<T>,
+): Promise<T>;
+```
+
+- Non-2xx → `throw new ApiError(status, body)`, `body` being the parsed JSON
+  error body or `null` when it was not JSON. `ApiErrorBody` lines up with the
+  `mapError` table above.
+- `204`, or any other empty 2xx body → resolves to `undefined`.
+- `schema` given → the 2xx body is `schema.parse`d; a wire shape that fails
+  throws that schema's `ZodError`, **not** an `ApiError`.
+- A transport failure (offline, DNS, aborted `signal`) rejects with `fetch`'s
+  own error, untouched — tell it from a bad response with `instanceof ApiError`.
+
+**Response-schema convention** (`src/lib/api/schemas/README.md`): every endpoint
+has a request schema (`<verb><Noun>Body`); where a client cares about the
+response shape, a response schema (`<noun>Response`). Client components call
+`apiFetch(path, { schema: <noun>Response })`. Phase 0's schema files (`auth`,
+`sessions`, `invites`) predate this and are not retrofitted.
 
 ### `src/lib/http/cookies.ts`
 
