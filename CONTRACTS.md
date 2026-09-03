@@ -23,6 +23,7 @@ Interfaces changed after the Phase 0 freeze. Each was reviewed and agreed with a
 
 - **plan-1a Task 1** — `src/server/auth/current.ts` added. Server components and layouts resolve the actor with `getCurrentActor()` / `whoami()` (read the cookie via `next/headers`). `getActor()` / `getActorOrNull()` (§6) remain **API-route-only** — they read the request context that only `withRequest` populates and throw / return null everywhere else. **Never call an audit-writing service from a server component** — `writeAudit` needs the request context and will throw `"no request context"`.
 - **plan-1a Task 2** — `scopeToClient` now fails closed: a guest with a null `clientId` (a data bug the new `user_guest_has_client` CHECK constraint prevents) gets an impossible-match `{ clientId: … }`, never `{}`. Spreading it into a `where` matches zero rows. Consumed by plan-01 Task 2's `listDemands`, plan-02, plan-04.
+- **plan-1a Task 3** — `serializePick` (allowlist) added to `src/server/policy/serialize.ts`; `serializeFor` is kept but marked internal-shaping-only (denylist — a new column leaks to guests by omission). `plan-01`'s `serializeDemand` and all Phase 1 guest serializers use `serializePick`, not `serializeFor`.
 
 ---
 
@@ -231,9 +232,13 @@ export function assertVisibleToGuest(
 
 ### `src/server/policy/serialize.ts`
 
-Role-aware serialisation. `serializeFor` returns the row unchanged for an
-internal actor; for a guest it strips `internalOnlyKeys` and applies an optional
-`guestTransform`. `assertNoInternalKeys` is the test-time guard that no
+Role-aware serialisation. **`serializePick` is an allowlist — use it for any
+guest-visible output**: it builds a guest view from `guestKeys` only, so a
+column added later defaults to hidden. `serializeFor` is a denylist kept for
+**internal shaping only — do not use it for guest output**: it spreads the whole
+row and deletes an enumerated list, so a new column leaks to a guest by
+omission. Both return the row unchanged (`serializePick`: minus `internalOmit`)
+for an internal actor. `assertNoInternalKeys` is the test-time guard that no
 internal-only key survived.
 
 ```ts
@@ -242,10 +247,25 @@ export type SerializerConfig<T> = {
   guestTransform?: (row: T) => Partial<T> & Record<string, unknown>;
 };
 
+/** Internal shaping only — do not use for guest output (a new column leaks by
+ *  omission). Use `serializePick`. */
 export function serializeFor<T extends Record<string, unknown>>(
   actor: Actor,
   row: T,
   cfg: SerializerConfig<T>,
+): Record<string, unknown>;
+
+/** Allowlist serializer for guest output. Internal reader: the row as-is, minus
+ *  `internalOmit`. Guest: only `guestKeys`, then `guestTransform` merged over.
+ *  Adding a column defaults to hidden. */
+export function serializePick<T extends Record<string, unknown>>(
+  actor: Actor,
+  row: T,
+  cfg: {
+    guestKeys: readonly (keyof T)[];
+    guestTransform?: (row: T) => Record<string, unknown>;
+    internalOmit?: readonly (keyof T)[];
+  },
 ): Record<string, unknown>;
 
 export function assertNoInternalKeys(

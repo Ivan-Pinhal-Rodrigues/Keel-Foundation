@@ -1,9 +1,11 @@
 import { describe, expect, test } from "vitest";
 import {
   serializeFor,
+  serializePick,
   assertNoInternalKeys,
-  SerializerConfig,
+  type SerializerConfig,
 } from "../serialize";
+import type { Actor } from "../actor";
 
 describe("serializeFor", () => {
   test("guest serialization drops internal-only keys and applies the transform", () => {
@@ -82,6 +84,54 @@ describe("serializeFor", () => {
     expect(out.assignee).toBe("Keel team");
     expect(out.newProp).toBe("added");
     expect(out).not.toHaveProperty("assigneeId");
+  });
+});
+
+describe("serializePick", () => {
+  const internal: Actor = {
+    id: "u",
+    kind: "INTERNAL",
+    hats: [],
+    clientId: null,
+  };
+  const guest: Actor = { id: "g", kind: "GUEST", hats: [], clientId: "c1" };
+  const row = {
+    id: "d1",
+    title: "T",
+    secretNote: "internal",
+    clientId: "c1",
+    futureColumnAddedLater: "oops",
+  } as Record<string, unknown>;
+
+  test("guest gets only the allowlisted keys — a new column is hidden by default", () => {
+    const out = serializePick(guest, row, { guestKeys: ["id", "title"] });
+    expect(out).toEqual({ id: "d1", title: "T" });
+    expect(out).not.toHaveProperty("secretNote");
+    expect(out).not.toHaveProperty("futureColumnAddedLater");
+  });
+
+  test("guestTransform merges over the picked keys", () => {
+    const out = serializePick(guest, row, {
+      guestKeys: ["id"],
+      guestTransform: () => ({ status: "In review", clientName: "N" }),
+    });
+    expect(out).toEqual({ id: "d1", status: "In review", clientName: "N" });
+  });
+
+  test("internal reader gets the whole row, minus internalOmit", () => {
+    expect(serializePick(internal, row, { guestKeys: ["id"] })).toEqual(row);
+    expect(
+      serializePick(internal, row, {
+        guestKeys: ["id"],
+        internalOmit: ["secretNote"],
+      }),
+    ).not.toHaveProperty("secretNote");
+  });
+
+  test("mutating the result never touches the row", () => {
+    const out = serializePick(guest, row, { guestKeys: ["id", "title"] });
+    (out as Record<string, unknown>).title = "changed";
+    expect(row.title).toBe("T");
   });
 });
 
