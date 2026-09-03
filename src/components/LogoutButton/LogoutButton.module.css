@@ -1,0 +1,22 @@
+.button {
+  padding: 0.4rem 0.8rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-2);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  transition:
+    background 0.12s,
+    color 0.12s;
+}
+
+.button:hover {
+  color: var(--text);
+  background: var(--border);
+}
+
+.button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}

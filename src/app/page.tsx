@@ -1,8 +1,11 @@
-export default function Home() {
-  return (
-    <main>
-      <h1>Keel</h1>
-      <p>Foundation scaffold. Modules land in Phase 0 and Phase 1.</p>
-    </main>
-  );
+import { redirect } from "next/navigation";
+
+/**
+ * `/` has no screen of its own. Middleware sends an unauthenticated hit to
+ * `/login` before this renders; an authenticated internal user is forwarded to
+ * `/demands`, and a guest is bounced on from there to `/portal` by the
+ * `(internal)` layout guard.
+ */
+export default function Root(): never {
+  redirect("/demands");
 }
