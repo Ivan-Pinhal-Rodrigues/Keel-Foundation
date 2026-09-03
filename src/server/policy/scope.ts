@@ -4,9 +4,11 @@ import { NotFoundError } from "./errors";
 export function scopeToClient(
   actor: Actor,
 ): { clientId: string } | Record<string, never> {
-  return actor.kind === "GUEST" && actor.clientId != null
-    ? { clientId: actor.clientId }
-    : {};
+  if (actor.kind !== "GUEST") return {};
+  // A guest must always have a clientId (enforced by a DB CHECK constraint). If
+  // one somehow does not, fail closed: an impossible clientId matches no rows,
+  // rather than {} which would match every row.
+  return { clientId: actor.clientId ?? " __no_such_client__" };
 }
 
 export function assertVisibleToGuest(

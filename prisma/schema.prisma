@@ -177,6 +177,7 @@ model Client {
 }
 
 model User {
+  // CHECK constraint user_guest_has_client (kind <> GUEST OR clientId IS NOT NULL) — see migration 20260903005643_user_guest_client_check
   id           String    @id @default(cuid())
   email        String    @unique
   passwordHash String // argon2id

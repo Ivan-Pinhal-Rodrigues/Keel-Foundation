@@ -22,6 +22,7 @@ default is part of the callable contract (you may omit the argument).
 Interfaces changed after the Phase 0 freeze. Each was reviewed and agreed with all Phase 1 owners.
 
 - **plan-1a Task 1** — `src/server/auth/current.ts` added. Server components and layouts resolve the actor with `getCurrentActor()` / `whoami()` (read the cookie via `next/headers`). `getActor()` / `getActorOrNull()` (§6) remain **API-route-only** — they read the request context that only `withRequest` populates and throw / return null everywhere else. **Never call an audit-writing service from a server component** — `writeAudit` needs the request context and will throw `"no request context"`.
+- **plan-1a Task 2** — `scopeToClient` now fails closed: a guest with a null `clientId` (a data bug the new `user_guest_has_client` CHECK constraint prevents) gets an impossible-match `{ clientId: … }`, never `{}`. Spreading it into a `where` matches zero rows. Consumed by plan-01 Task 2's `listDemands`, plan-02, plan-04.
 
 ---
 
@@ -210,8 +211,12 @@ export class SegregationError extends Error {
 ### `src/server/policy/scope.ts`
 
 Guest data-scoping helpers. `scopeToClient` is a Prisma `where` fragment to
-spread into a guest read (`{}` for an internal actor). `assertVisibleToGuest`
-throws `NotFoundError` when a loaded row is not the guest's own client's.
+spread into a guest read (`{}` for an internal actor). It **fails closed**: a
+guest whose `clientId` is somehow `null` — a data bug the `user_guest_has_client`
+CHECK constraint (migration `20260903005643_user_guest_client_check`) prevents —
+gets an impossible-match `{ clientId: "…" }` that matches zero rows, never `{}`.
+`assertVisibleToGuest` throws `NotFoundError` when a loaded row is not the
+guest's own client's.
 
 ```ts
 export function scopeToClient(

@@ -19,10 +19,29 @@ describe("scopeToClient", () => {
     ).toEqual({});
   });
 
-  test("returns empty object for guest with null clientId (defensive)", () => {
+  test("a guest with a null clientId gets an impossible-match scope, never {}", () => {
+    const scoped = scopeToClient({
+      id: "g",
+      kind: "GUEST",
+      hats: [],
+      clientId: null,
+    });
+    // the exact shape is an implementation detail; the invariant is: it must not
+    // be an empty object, and spreading it into a `where` must match zero rows.
+    expect(scoped).not.toEqual({});
+    expect(Object.keys(scoped)).toContain("clientId");
+  });
+
+  test("an internal actor gets {}", () => {
     expect(
-      scopeToClient({ id: "g", kind: "GUEST", hats: [], clientId: null }),
+      scopeToClient({ id: "u", kind: "INTERNAL", hats: [], clientId: null }),
     ).toEqual({});
+  });
+
+  test("a guest with a clientId gets that clientId", () => {
+    expect(
+      scopeToClient({ id: "g", kind: "GUEST", hats: [], clientId: "c1" }),
+    ).toEqual({ clientId: "c1" });
   });
 });
 
