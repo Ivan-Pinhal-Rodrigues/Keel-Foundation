@@ -10,7 +10,7 @@ import { createSession, getSessionAndUser } from "@/server/auth/session";
 import { getRequestId } from "@/server/context";
 import { logger } from "@/server/log";
 import { prisma as db } from "@/server/db/client";
-import { createTestDb, dropTestDb } from "@/test/db";
+import { createTestDb } from "@/test/db";
 
 /**
  * Same seam as the login route test: the wrapper reaches the database through
@@ -63,9 +63,9 @@ beforeAll(async () => {
   rawToken = token;
 }, 180_000);
 
+// Disconnect only — `global-setup.ts` sweeps the clone. See `withTestDb()`.
 afterAll(async () => {
   await db.$disconnect();
-  await dropTestDb(dbName);
 }, 120_000);
 
 const req = (init?: { cookie?: string; requestId?: string }) => {

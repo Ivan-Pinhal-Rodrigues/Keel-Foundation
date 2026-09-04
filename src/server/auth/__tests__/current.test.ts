@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, expect, test, vi } from "vitest";
 import { getCurrentActor, whoami } from "@/server/auth/current";
 import { createSession } from "@/server/auth/session";
 import { prisma as db } from "@/server/db/client";
-import { createTestDb, dropTestDb } from "@/test/db";
+import { createTestDb } from "@/test/db";
 
 /**
  * `getCurrentActor()` / `whoami()` resolve the session through the
@@ -48,9 +48,9 @@ beforeAll(async () => {
   await createTestDb(dbName);
 }, 180_000);
 
+// Disconnect only — `global-setup.ts` sweeps the clone. See `withTestDb()`.
 afterAll(async () => {
   await db.$disconnect();
-  await dropTestDb(dbName);
 }, 120_000);
 
 afterEach(() => {

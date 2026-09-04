@@ -4,7 +4,7 @@ import { POST } from "@/app/api/guest-invites/[token]/redeem/route";
 import { sha256 } from "@/server/auth/invites";
 import { getSessionAndUser } from "@/server/auth/session";
 import { prisma as db } from "@/server/db/client";
-import { createTestDb, dropTestDb } from "@/test/db";
+import { createTestDb } from "@/test/db";
 
 /** Same DB seam as the login route test — the singleton is mocked and bound to
  *  a database this file owns, so `runInTransaction` (redeem) and `createSession`
@@ -35,9 +35,9 @@ beforeAll(async () => {
   clientId = client.id;
 }, 180_000);
 
+// Disconnect only — `global-setup.ts` sweeps the clone. See `withTestDb()`.
 afterAll(async () => {
   await db.$disconnect();
-  await dropTestDb(dbName);
 }, 120_000);
 
 async function seedInvite(expiresAt = new Date(Date.now() + 7 * 86_400_000)) {

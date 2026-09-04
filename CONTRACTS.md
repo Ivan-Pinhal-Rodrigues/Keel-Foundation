@@ -1215,12 +1215,13 @@ findings.
   `const db = withTestDb(); db()`.
 - **Every `CREATE` / `DROP DATABASE` is serialised behind a Postgres advisory
   lock** (`db-admin.ts`, `DDL_LOCK_KEY`). This is load-bearing, not caution:
-  running them concurrently **crashes the whole cluster** — `server process …
-exited with exit code 2`, every connection dropped, restart into recovery.
-  Reproduced with plain `psql` and no vitest: 75 serial create+drop cycles are
-  fine, 13 concurrent sessions crash it, and 13 concurrent sessions taking the
-  lock are fine again. ~13 vitest workers hit `beforeAll` together, which is
-  exactly the failing shape. Serialising costs under a second per run.
+  running them concurrently **crashes the whole cluster** —
+  `server process … exited with exit code 2`, every connection dropped,
+  restart into recovery. Reproduced with plain `psql` and no vitest: 75 serial
+  create+drop cycles are fine, 13 concurrent sessions crash it, and 13
+  concurrent sessions taking the lock are fine again. ~13 vitest workers hit
+  `beforeAll` together, which is exactly the failing shape. Serialising costs
+  under a second per run.
 - **A test file never drops its own database**; its `afterAll` only
   `$disconnect()`s. `global-setup.ts` owns all cleanup: one sweep at teardown,
   after every worker has exited, which keeps ~26 forced checkpoints

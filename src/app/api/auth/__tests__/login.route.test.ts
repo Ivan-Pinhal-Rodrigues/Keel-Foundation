@@ -4,7 +4,7 @@ import { POST } from "@/app/api/auth/login/route";
 import { hashPassword } from "@/server/auth/password";
 import { getSessionAndUser } from "@/server/auth/session";
 import { prisma as db } from "@/server/db/client";
-import { createTestDb, dropTestDb } from "@/test/db";
+import { createTestDb } from "@/test/db";
 
 /**
  * Testability seam. (New route tests should use `withRouteTestDb()` from
@@ -58,9 +58,9 @@ beforeAll(async () => {
   userId = u.id;
 }, 180_000);
 
+// Disconnect only — `global-setup.ts` sweeps the clone. See `withTestDb()`.
 afterAll(async () => {
   await db.$disconnect();
-  await dropTestDb(dbName);
 }, 120_000);
 
 /** One login request. Each test uses its own client IP so the per-IP rate

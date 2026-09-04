@@ -2,7 +2,7 @@ import { afterAll, beforeAll, expect, test, vi } from "vitest";
 import { POST } from "@/app/api/auth/logout/route";
 import { createSession } from "@/server/auth/session";
 import { prisma as db } from "@/server/db/client";
-import { createTestDb, dropTestDb } from "@/test/db";
+import { createTestDb } from "@/test/db";
 
 /** Same DB seam as the login route test — the singleton module is mocked and
  *  bound to a database this file owns. (New route tests should use
@@ -39,9 +39,9 @@ beforeAll(async () => {
   userId = u.id;
 }, 180_000);
 
+// Disconnect only — `global-setup.ts` sweeps the clone. See `withTestDb()`.
 afterAll(async () => {
   await db.$disconnect();
-  await dropTestDb(dbName);
 }, 120_000);
 
 const logoutReq = (cookie?: string) =>

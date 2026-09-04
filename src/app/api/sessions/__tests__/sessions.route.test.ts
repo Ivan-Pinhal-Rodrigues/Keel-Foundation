@@ -4,7 +4,7 @@ import { GET } from "@/app/api/sessions/route";
 import { sessionsResponse } from "@/lib/api/schemas/sessions";
 import { createSession } from "@/server/auth/session";
 import { prisma as db } from "@/server/db/client";
-import { createTestDb, dropTestDb } from "@/test/db";
+import { createTestDb } from "@/test/db";
 
 /** Same DB seam as the login route test — the singleton is mocked and bound to
  *  a database this file owns. (New route tests should use `withRouteTestDb()`
@@ -49,9 +49,9 @@ beforeAll(async () => {
   T = (await mkUser("t@keel.local", ["TECHNICAL_APPROVER"])).id;
 }, 180_000);
 
+// Disconnect only — `global-setup.ts` sweeps the clone. See `withTestDb()`.
 afterAll(async () => {
   await db.$disconnect();
-  await dropTestDb(dbName);
 }, 120_000);
 
 /** A fresh session for `userId`; returns the raw cookie token. */

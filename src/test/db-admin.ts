@@ -102,11 +102,20 @@ function assertDisposableDbName(name: string): void {
 /** Repoint a connection string at another *database*, preserving the role,
  *  host and every other query parameter. (The old harness swapped `?schema=`;
  *  clones are whole databases now, so the path segment moves instead and the
- *  schema is always `public` — that is where `migrate deploy` put everything.) */
+ *  schema is always `public` — that is where `migrate deploy` put everything.)
+ *
+ *  `forceConnectionLimit` overrides an existing `connection_limit` rather than
+ *  only filling it in when absent — `adminUrl()` needs this: the advisory-lock
+ *  design in `execRetrying` requires its session to be the admin pool's *only*
+ *  connection, and that must hold regardless of what `MIGRATE_DATABASE_URL`
+ *  happens to carry. The per-file clone URLs (`migrateUrlForDb` / `appUrlForDb`)
+ *  keep the fill-in-only behaviour — a caller-supplied `connection_limit` there
+ *  is a deliberate tuning knob, pinned by `db.test.ts`. */
 function urlForDb(
   baseUrl: string,
   dbName: string,
   connectionLimit: string,
+  forceConnectionLimit = false,
 ): string {
   const match = CONNECTION_URL_RE.exec(baseUrl);
   if (!match) {
@@ -120,7 +129,7 @@ function urlForDb(
   const q = rest.indexOf("?");
   const params = new URLSearchParams(q === -1 ? "" : rest.slice(q + 1));
   params.set("schema", "public");
-  if (!params.has("connection_limit")) {
+  if (forceConnectionLimit || !params.has("connection_limit")) {
     params.set("connection_limit", connectionLimit);
   }
   return `${prefix}${dbName}?${params.toString()}`;
@@ -158,7 +167,10 @@ function adminUrl(): string {
   if (!stableDb) {
     throw new Error("MIGRATE_DATABASE_URL names no database to connect to");
   }
-  return urlForDb(base, stableDb, ADMIN_CONNECTION_LIMIT);
+  // `force`: the advisory lock in `execRetrying` needs every statement in one
+  // call to land on the same physical connection, so this pool must be exactly
+  // one connection even if `MIGRATE_DATABASE_URL` itself sets `connection_limit`.
+  return urlForDb(base, stableDb, ADMIN_CONNECTION_LIMIT, true);
 }
 
 /** Open a short-lived `keel_migrate` client on the stable database, run `fn`,
