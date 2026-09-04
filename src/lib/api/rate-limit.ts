@@ -13,11 +13,19 @@
  *    caller can spend `max` at the end of one window and `max` again at the
  *    start of the next — a burst of ~2 × `max` across the seam. It still bounds
  *    the sustained rate, which is the point.
- * 3. **It trusts whatever key the caller derives.** The login route keys on the
- *    first `x-forwarded-for` hop, which any client can forge unless an ingress
- *    overwrites the header. The limit is therefore only meaningful behind a
- *    proxy that sets `x-forwarded-for` itself rather than appending to a
- *    client-supplied one.
+ * 3. **It trusts whatever key the caller derives.** The login route's primary
+ *    key is `login:${normalizedEmail}` — always checked, IP-independent — so
+ *    an account-wide bound holds no matter what headers a client sends. Only
+ *    when `x-forwarded-for` or `x-real-ip` is present does the route ALSO
+ *    check a secondary `login:${email}:${ip}` key; that check can only make
+ *    the outcome more restrictive, never less, and is skipped (not faked with
+ *    a placeholder like the old `"local"`) when neither header is present.
+ *    IP remains spoofable — any client can forge `x-forwarded-for` — unless a
+ *    trusted ingress overwrites rather than appends to it (`specs/
+ *    08-deploy-and-ci.md`), which is exactly why IP is only ever an
+ *    additional, tightening dimension and never a replacement for the email
+ *    key: a client rotating its IP header on every request still shares the
+ *    one email-keyed bucket and is bounded by it regardless.
  */
 
 type Bucket = { count: number; resetAt: number };

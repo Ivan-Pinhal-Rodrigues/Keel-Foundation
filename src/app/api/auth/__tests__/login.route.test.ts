@@ -63,8 +63,10 @@ afterAll(async () => {
   await db.$disconnect();
 }, 120_000);
 
-/** One login request. Each test uses its own client IP so the per-IP rate
- *  limiter (module state, shared across a file) cannot leak between tests. */
+/** One login request. The rate limiter's primary key is the email (module
+ *  state, shared across this file), so each test also uses its own email
+ *  where it needs an isolated bucket; the `x-forwarded-for` value exercises
+ *  the secondary IP+email key. */
 const login = (body: unknown, ip: string) =>
   POST(
     new Request("http://localhost:3000/api/auth/login", {
@@ -161,7 +163,7 @@ test("a malformed body → 400 and no audit event", async () => {
   expect(await db.auditEvent.count()).toBe(before);
 });
 
-test("the per-IP rate limit trips after 10 attempts, and a 429 emits nothing", async () => {
+test("the email-keyed rate limit trips after 10 attempts even from a different IP, and a 429 emits nothing", async () => {
   const ip = "203.0.113.5";
   const email = "nobody@keel.local";
   const statuses: number[] = [];
@@ -180,8 +182,47 @@ test("the per-IP rate limit trips after 10 attempts, and a 429 emits nothing", a
     }),
   ).toBe(10);
 
-  // Another client is unaffected — the bucket is per key, not global.
+  // The SAME email from a DIFFERENT IP still shares the primary email-keyed
+  // bucket, so it is also 429 — this is the whole point of the fix: an
+  // attacker cannot evade the limiter by rotating `x-forwarded-for`, because
+  // the check that matters never looks at IP at all.
   expect(
     (await login({ email, password: "secret12" }, "203.0.113.6")).status,
+  ).toBe(429);
+});
+
+test("a different email is unaffected — the bucket is per email, not global", async () => {
+  const ip = "203.0.113.20";
+  const otherEmail = "someone-else@keel.local";
+
+  // A fresh email's bucket is untouched by the previous test's exhausted
+  // `nobody@keel.local` bucket.
+  expect(
+    (await login({ email: otherEmail, password: "secret12" }, ip)).status,
   ).toBe(401);
+});
+
+test("no x-forwarded-for and no x-real-ip: two different emails succeed independently (no shared 'local' bucket)", async () => {
+  const req = (body: unknown) =>
+    POST(
+      new Request("http://localhost:3000/api/auth/login", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "user-agent": "vitest-agent",
+        },
+        body: JSON.stringify(body),
+      }),
+    );
+
+  const [resA, resB] = await Promise.all([
+    req({ email: "no-ip-a@keel.local", password: "secret12" }),
+    req({ email: "no-ip-b@keel.local", password: "secret12" }),
+  ]);
+
+  // Both are 401 (bad credentials, since these users don't exist) rather than
+  // 429 — if they shared one global bucket keyed on a fallback like the old
+  // `"local"`, one of these would trip the limiter instead.
+  expect(resA.status).toBe(401);
+  expect(resB.status).toBe(401);
 });

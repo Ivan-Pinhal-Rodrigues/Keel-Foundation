@@ -21,26 +21,49 @@ import { runWithContext } from "@/server/context";
  * both keep the handler a plain `Request -> Response` function, so the route
  * test can call `POST(new Request(...))` with no Next request scope and read
  * `Set-Cookie` straight off the result.
+ *
+ * Rate-limit key: the body must be parsed before either check below, since
+ * both key on the submitted email. See `rate-limit.ts` for why the primary
+ * key is the email (always checked) and the IP is only ever an *additional*,
+ * tightening check, never a substitute — an attacker who controls
+ * `X-Forwarded-For` (true until a trusted ingress is in place, `specs/
+ * 08-deploy-and-ci.md`) could otherwise mint a fresh bucket per request by
+ * rotating the header.
+ *
+ * A malformed body (fails `req.json()` or `loginBody.safeParse`) is rejected
+ * with 400 before any rate-limit check runs, deliberately: it's already cheap
+ * to reject (no DB round-trip, no argon2), and this limiter exists "to blunt
+ * credential stuffing against one box" (`rate-limit.ts`) — stuffing requires
+ * a parseable credential attempt, so spending rate-limit budget on garbage
+ * bodies isn't this limiter's job.
  */
 
 export async function POST(req: Request): Promise<Response> {
-  const ip = clientIp(req);
-  if (!rateLimit(`login:${ip}`, 10, 60_000)) {
+  const body: unknown = await req.json().catch(() => null);
+  const userAgent = req.headers.get("user-agent") ?? undefined;
+
+  const parsed = loginBody.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json({ error: "invalid" }, { status: 400 });
+  }
+
+  const normalizedEmail = parsed.data.email.trim().toLowerCase();
+  if (!rateLimit(`login:${normalizedEmail}`, 10, 60_000)) {
     return NextResponse.json({ error: "rate_limited" }, { status: 429 });
   }
 
-  const body: unknown = await req.json().catch(() => null);
-  const userAgent = req.headers.get("user-agent") ?? undefined;
+  const ip = clientIp(req);
+  if (ip !== null && !rateLimit(`login:${normalizedEmail}:${ip}`, 10, 60_000)) {
+    return NextResponse.json({ error: "rate_limited" }, { status: 429 });
+  }
 
   return runWithContext(
     { requestId: randomUUID(), actorId: null },
     async (): Promise<Response> => {
-      const parsed = loginBody.safeParse(body);
-      if (!parsed.success) {
-        return NextResponse.json({ error: "invalid" }, { status: 400 });
-      }
-
-      const result = await login(parsed.data, { userAgent, ip });
+      const result = await login(parsed.data, {
+        userAgent,
+        ip: ip ?? undefined,
+      });
       if (!result.ok) {
         // One response for wrong password / unknown email / deactivated
         // account — and `verifyCredentials` makes them cost the same, so the
@@ -64,12 +87,14 @@ export async function POST(req: Request): Promise<Response> {
   );
 }
 
-/** First hop of `x-forwarded-for` (the client), else a placeholder so the rate
- *  limiter still has a key in local dev. See `rate-limit.ts` on trusting XFF. */
-function clientIp(req: Request): string {
+/** First hop of `x-forwarded-for`, else `x-real-ip`, else `null` when neither
+ *  header is present — there is no IP signal to invent, so none is faked (no
+ *  `"local"` fallback: that string used to collapse every unknown-IP client
+ *  into one shared bucket). See `rate-limit.ts` on trusting XFF. */
+function clientIp(req: Request): string | null {
   return (
     req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
     req.headers.get("x-real-ip")?.trim() ||
-    "local"
+    null
   );
 }

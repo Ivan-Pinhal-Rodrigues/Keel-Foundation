@@ -64,6 +64,9 @@ Templates:
 - `service.yaml` — ClusterIP.
 - `ingress.yaml` — toggled by `ingress.enabled`; `className` and `host` from
   values (placeholders in both value files); annotations pass-through map.
+  The ingress/proxy MUST replace (not append to) `X-Forwarded-For` with the
+  real client address before the request reaches the app. Until a trusted
+  proxy is in place the login limiter keys on the submitted email only.
 - `migrate-job.yaml` — `helm.sh/hook: pre-install,pre-upgrade`,
   `hook-delete-policy: before-hook-creation,hook-succeeded`; runs
   `prisma migrate deploy` + the grant SQL as the migrate role; `backoffLimit: 1`.
