@@ -20,5 +20,9 @@ export default defineConfig({
     coverage: { provider: "v8", reportsDirectory: "./coverage" },
     pool: "forks",
     poolOptions: { forks: { singleFork: false } },
+    // Explicit, not inherited from the default: route-db.ts shares DB_NAME as
+    // module state between the vi.mock factory and withRouteTestDb(); a shared
+    // module instance would collide two route files onto one test database.
+    isolate: true,
   },
 });

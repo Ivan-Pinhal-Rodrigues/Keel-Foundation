@@ -1,6 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import { afterAll, beforeAll, expect, test } from "vitest";
-import { appUrlForDb, createTestDb, dropTestDb, testDbName } from "@/test/db";
+import { appUrlForDb, createTestDb, testDbName } from "@/test/db";
 
 /**
  * plan-1a Task 5 — record-of-fact immutability, proven from the app's own
@@ -22,7 +22,6 @@ import { appUrlForDb, createTestDb, dropTestDb, testDbName } from "@/test/db";
  */
 
 let appDb: PrismaClient; // keel_app — the restricted runtime role
-// Mint the name before any DDL runs, so `afterAll` can always drop it.
 const dbName = testDbName();
 
 let stepId = "";
@@ -76,9 +75,9 @@ beforeAll(async () => {
   changeId = change.id;
 }, 120_000);
 
+// Disconnect only — `global-setup.ts` sweeps the clone. See `withTestDb()`.
 afterAll(async () => {
   await appDb?.$disconnect();
-  await dropTestDb(dbName);
 }, 120_000);
 
 test("keel_app CAN append and read ApprovalDecision", async () => {

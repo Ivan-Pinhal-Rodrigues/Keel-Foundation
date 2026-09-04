@@ -1,5 +1,5 @@
 import { PrismaClient } from "@prisma/client";
-import { afterAll, expect, test } from "vitest";
+import { expect, test } from "vitest";
 import {
   createTestDb,
   dropTestDb,
@@ -8,10 +8,14 @@ import {
 } from "@/test/db";
 
 // Contract test for the harness every integration test builds on. The
-// pure-function cases need no database; one live case exercises the
-// clone -> connect -> drop round-trip against the running Postgres, and pins
-// the property the whole Task 11 rework rests on: `CREATE DATABASE … TEMPLATE`
-// copies the migrations' *table privileges*, not just their tables.
+// pure-function cases need no database; one live case clones the template and
+// pins the property the whole Task 11 rework rests on: `CREATE DATABASE …
+// TEMPLATE` copies the migrations' *table privileges*, not just their tables.
+//
+// Nothing here drops a real database. `dropTestDb`'s guards are exercised below
+// with names it must refuse; the drop path proper is exercised ~60 times a run
+// by `global-setup.ts`'s teardown sweep, which is now the only caller — a
+// per-file `DROP DATABASE` storm crashed the cluster (see `db-admin.ts`).
 
 // --- pure-function contract -------------------------------------------------
 
@@ -57,18 +61,11 @@ test("dropTestDb refuses a well-formed name that is not the harness's", async ()
   await expect(dropTestDb("keel")).rejects.toThrow(/not a harness database/i);
 });
 
-// --- live round-trip --------------------------------------------------------
+// --- live clone -------------------------------------------------------------
 
-// Minted before any DDL runs, so `afterAll` can always drop it — the leak that
-// bit the old no-arg `applyMigrationsToNewSchema()` callers.
 const liveDb = testDbName();
-let dropped = false;
 
-afterAll(async () => {
-  if (!dropped) await dropTestDb(liveDb);
-}, 120_000);
-
-test("createTestDb clones the migrated template, dropTestDb removes it", async () => {
+test("createTestDb clones the migrated template, privileges included", async () => {
   expect(liveDb).toMatch(/^test_[0-9a-f]{12}$/);
   expect(await createTestDb(liveDb)).toBe(liveDb);
 
@@ -108,19 +105,6 @@ test("createTestDb clones the migrated template, dropTestDb removes it", async (
     await clone.$disconnect();
   }
 
-  await dropTestDb(liveDb);
-  dropped = true;
-
-  const admin = new PrismaClient({
-    datasources: { db: { url: process.env.MIGRATE_DATABASE_URL } },
-  });
-  try {
-    const rows = await admin.$queryRawUnsafe<{ datname: string }[]>(
-      `SELECT datname FROM pg_database WHERE datname = $1`,
-      liveDb,
-    );
-    expect(rows).toHaveLength(0);
-  } finally {
-    await admin.$disconnect();
-  }
+  // The clone is left standing on purpose — `global-setup.ts`'s teardown sweep
+  // removes it along with every other test file's.
 }, 120_000);

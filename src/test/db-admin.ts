@@ -27,7 +27,16 @@ import { PrismaClient } from "@prisma/client";
  * `CREATE DATABASE test_<hex> TEMPLATE keel_test_tmpl` — a near-instant file
  * copy that carries the full schema *and its table privileges*, so the
  * `keel_app` REVOKEs from `audit_grants` / `audit_default_privileges` are live
- * in every clone — and `DROP DATABASE … WITH (FORCE)` on teardown.
+ * in every clone.
+ *
+ * Two things keep this stable, both of them load-bearing — see `DDL_LOCK_KEY`
+ * and `dropTestDb`:
+ *
+ *   - every `CREATE`/`DROP DATABASE` is serialised cluster-wide behind an
+ *     advisory lock, because running them concurrently crashes Postgres;
+ *   - nothing drops a clone during the run at all. `globalSetup` owns cleanup
+ *     and sweeps at teardown, so every clone coexists for the length of a run —
+ *     ~9 MB apiece, ~226 MB peak for the full suite.
  */
 
 const nodeRequire = createRequire(import.meta.url);
@@ -167,28 +176,82 @@ async function withAdmin<T>(fn: (admin: PrismaClient) => Promise<T>) {
 }
 
 /**
- * `CREATE DATABASE … TEMPLATE` fails with SQLSTATE 55006 ("source database is
- * being accessed by other users") if anything is connected to the template, and
- * `DROP DATABASE` can hit the same class of transient conflict. ~13 workers
- * reach `beforeAll` at once, so this is a *when*, not an *if*. 53300 ("too many
- * clients") is the other transient failure worth surviving.
+ * **Concurrent `CREATE DATABASE` / `DROP DATABASE` crashes the cluster**, so
+ * every one of them is serialised behind this advisory lock.
  *
- * Everything else is re-thrown immediately — a genuinely broken statement must
- * not spend 8 seconds pretending to be contention.
+ * This was measured, not guessed. With no vitest and no Prisma in the picture,
+ * driving plain `psql`:
+ *
+ *   - 75 `CREATE DATABASE … TEMPLATE` + 75 `DROP DATABASE`, **serially**, from a
+ *     template three times the size of ours — fine, ~27 ms each.
+ *   - the same work from **13 concurrent** sessions — `server process … exited
+ *     with exit code 2`, `terminating connection because of crash of another
+ *     server process`, whole-cluster restart into recovery. Reproducible.
+ *   - 13 concurrent sessions again, each taking this lock first — fine.
+ *
+ * ~13 vitest workers reach `beforeAll` together, which is exactly the failing
+ * shape. Serialising costs almost nothing: ~26 clones × ~30 ms is under a
+ * second across a run that takes fifteen.
+ *
+ * `lock_timeout` bounds the wait so a wedged holder surfaces as an error rather
+ * than a hung `beforeAll`; a crashed holder's session ends and Postgres releases
+ * the lock for us.
+ */
+const DDL_LOCK_KEY = 0x6b65_656c; // "keel"
+
+/**
+ * Retryable failures. 55006 is `CREATE DATABASE … TEMPLATE` racing a connection
+ * to the template; 53300 is "too many clients"; the recovery-mode family is a
+ * cluster that is restarting under us.
+ *
+ * Retrying across a restart is safe for the two statements this module issues:
+ * `DROP DATABASE IF EXISTS` is idempotent, and `createTestDb` drops before it
+ * creates. It is never *silent* — see the warning in `execRetrying`.
+ *
+ * Everything else is re-thrown immediately: a genuinely broken statement must
+ * not spend six seconds pretending to be contention.
  */
 const RETRYABLE =
-  /\b(?:55006|53300)\b|being accessed by other users|too many clients|remaining connection slots/i;
+  /\b(?:55006|53300|57P03)\b|being accessed by other users|too many clients|remaining connection slots|database system is (?:in recovery mode|starting up|shutting down)|not yet accepting connections|closed the connection|crash of another server process/i;
+
+/** The subset of `RETRYABLE` that means the cluster went down and came back.
+ *  Loud, because that is never normal and must not hide behind a retry. */
+const CLUSTER_RESTARTED =
+  /not yet accepting connections|in recovery mode|closed the connection|crash of another server process/i;
 
 const MAX_ATTEMPTS = 30;
 
+/** Run one DDL statement as `keel_migrate`, serialised cluster-wide and retried
+ *  through transient contention. */
 async function execRetrying(sql: string): Promise<void> {
   let lastError: unknown;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
-      await withAdmin((admin) => admin.$executeRawUnsafe(sql));
+      await withAdmin(async (admin) => {
+        // connection_limit=1, so every statement below is the same session —
+        // which is what makes a session-level advisory lock work here.
+        await admin.$executeRawUnsafe(`SET lock_timeout = '60s'`);
+        // `$executeRaw`, not `$queryRaw`: pg_advisory_lock returns `void`, and
+        // Prisma cannot deserialize a void column.
+        await admin.$executeRawUnsafe(
+          `SELECT pg_advisory_lock(${DDL_LOCK_KEY})`,
+        );
+        try {
+          await admin.$executeRawUnsafe(sql);
+        } finally {
+          await admin.$executeRawUnsafe(
+            `SELECT pg_advisory_unlock(${DDL_LOCK_KEY})`,
+          );
+        }
+      });
       return;
     } catch (err) {
       if (!RETRYABLE.test(String(err))) throw err;
+      if (CLUSTER_RESTARTED.test(String(err))) {
+        console.warn(
+          `[test-db] Postgres went away mid-statement; retrying: ${sql}`,
+        );
+      }
       lastError = err;
       // Jittered so the workers that collided do not collide again in lockstep.
       await sleep(100 + Math.random() * 200);
@@ -199,16 +262,34 @@ async function execRetrying(sql: string): Promise<void> {
   );
 }
 
-/** Create one disposable database as a copy of the migrated template. */
+/**
+ * Create one disposable database as a copy of the migrated template.
+ *
+ * The `DROP … IF EXISTS` first makes the pair retry-safe: if a `CREATE` is
+ * killed mid-flight, the retry would otherwise hit `42P04 already exists` and
+ * fail hard. On the normal path the database does not exist, and `DROP DATABASE
+ * IF EXISTS` returns before it does any work — in particular before the forced
+ * checkpoint — so this costs nothing.
+ */
 export async function createTestDb(dbName: string): Promise<string> {
-  assertSafeDbName(dbName);
+  assertDisposableDbName(dbName);
+  await execRetrying(`DROP DATABASE IF EXISTS "${dbName}" WITH (FORCE)`);
   await execRetrying(`CREATE DATABASE "${dbName}" TEMPLATE "${TEMPLATE_DB}"`);
   return dbName;
 }
 
-/** Drop a disposable database. Safe to call more than once. `WITH (FORCE)`
- *  terminates any straggler backend — callers `$disconnect()` first, but a
- *  Prisma pool can outlive the await by a few milliseconds. */
+/**
+ * Drop a disposable database. Safe to call more than once. `WITH (FORCE)`
+ * terminates any straggler backend — callers `$disconnect()` first, but a
+ * Prisma pool can outlive the await by a few milliseconds.
+ *
+ * **Call this from `global-setup.ts` only.** `DROP DATABASE` unconditionally
+ * requests `CHECKPOINT_IMMEDIATE | FORCE | WAIT`, and that is inherent to the
+ * statement, not to `WITH (FORCE)`. Keeping all of them in one place, after
+ * every worker has exited, keeps that cost off the run's critical path — and
+ * the advisory lock in `execRetrying` is what keeps it from crashing the
+ * cluster when it does overlap something.
+ */
 export async function dropTestDb(dbName: string): Promise<void> {
   assertDisposableDbName(dbName);
   await execRetrying(`DROP DATABASE IF EXISTS "${dbName}" WITH (FORCE)`);
@@ -237,16 +318,33 @@ export async function createTemplateDb(): Promise<void> {
  *  is *not* inherited by a clone (same as `template0`), and it does not stop the
  *  database being used as a template. */
 export async function sealTemplateDb(): Promise<void> {
+  // Block new connections first, then clear the ones already in.
   await execRetrying(
     `ALTER DATABASE "${TEMPLATE_DB}" WITH ALLOW_CONNECTIONS false`,
   );
-  await withAdmin(async (admin) => {
-    await admin.$queryRawUnsafe(
-      `SELECT pg_terminate_backend(pid) FROM pg_stat_activity
-        WHERE datname = $1 AND pid <> pg_backend_pid()`,
-      TEMPLATE_DB,
-    );
-  });
+  try {
+    await withAdmin(async (admin) => {
+      await admin.$queryRawUnsafe(
+        // Only our own client sessions. An autovacuum worker can be inside a
+        // just-created database, it runs as the bootstrap superuser, and
+        // `keel_migrate` may not signal a superuser's backend — trying to
+        // failed the whole run with 42501. It is also not worth killing: the
+        // launcher skips `datallowconn = false` databases, so the ALTER above
+        // means no new one arrives and the current one finishes in
+        // milliseconds on a database this small.
+        `SELECT pg_terminate_backend(pid) FROM pg_stat_activity
+          WHERE datname = $1
+            AND pid <> pg_backend_pid()
+            AND backend_type = 'client backend'
+            AND usename = current_user`,
+        TEMPLATE_DB,
+      );
+    });
+  } catch {
+    // Best effort. This only shortens the window in which a `CREATE DATABASE …
+    // TEMPLATE` would bounce off 55006; `execRetrying` is what actually
+    // guarantees the clone eventually happens.
+  }
 }
 
 /** `prisma migrate deploy` into one database, as `keel_migrate`. The only

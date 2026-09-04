@@ -29,6 +29,12 @@ import {
  *     teardown, so the sweep at the *start* is what actually guarantees a clean
  *     cluster — not the one at the end.
  *
+ * The teardown sweep is also the *only* place a `test_<hex>` clone is dropped on
+ * the happy path. Test files no longer drop their own: `DROP DATABASE` forces an
+ * immediate checkpoint, and ~26 of those belong off the run's critical path.
+ * The cost is that every clone coexists for the length of a run — ~9 MB each,
+ * ~226 MB peak for the full suite.
+ *
  * `setupFiles` (vitest.setup.ts) only run inside workers, so dotenv is loaded
  * here as well; `db-admin.ts` is deliberately vitest-free so it can be imported
  * from this process.
@@ -57,8 +63,13 @@ export default async function setup(): Promise<() => Promise<void>> {
     deployMigrationsToDb(TEMPLATE_DB);
     await sealTemplateDb();
   } catch (err) {
-    // Never leave a half-migrated template behind for the workers to clone.
-    await dropTestDb(TEMPLATE_DB);
+    // Never leave a half-migrated template behind for the workers to clone —
+    // but a failure to clean up must not mask why the migrate failed.
+    try {
+      await dropTestDb(TEMPLATE_DB);
+    } catch {
+      /* the original error below is the one worth reading */
+    }
     throw err;
   }
   console.log(
@@ -66,12 +77,13 @@ export default async function setup(): Promise<() => Promise<void>> {
   );
 
   return async function teardown(): Promise<void> {
-    const remaining = await sweep();
-    const clones = remaining.filter((name) => name !== TEMPLATE_DB);
-    if (clones.length > 0) {
-      console.warn(
-        `[test-db] ${clones.length} test database(s) leaked and were swept at teardown: ${clones.join(", ")}`,
-      );
-    }
+    // The normal path: every clone each test file created is still here, and
+    // this is where they go. Serial, with every worker already gone, so the
+    // forced checkpoint each DROP DATABASE triggers never overlaps another.
+    const swept = Date.now();
+    const removed = await sweep();
+    console.log(
+      `[test-db] dropped ${removed.length} database(s) in ${Date.now() - swept} ms`,
+    );
   };
 }

@@ -51,22 +51,25 @@ beforeAll(async () => {
   );
 }, 180_000);
 
-const post = (body: unknown, actor?: TestActor) =>
-  POST(
-    new Request("http://localhost:3000/api/guest-invites", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        ...(actor ? actor.headers : {}),
-      },
-      body: typeof body === "string" ? body : JSON.stringify(body),
-    }),
-  );
+const request = (body: unknown, actor?: TestActor) =>
+  new Request("http://localhost:3000/api/guest-invites", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      ...(actor ? actor.headers : {}),
+    },
+    body: typeof body === "string" ? body : JSON.stringify(body),
+  });
+
+const post = (body: unknown, actor?: TestActor) => POST(request(body, actor));
 
 test("an internal actor gets 200 { url } and a GuestInvite + audit row land", async () => {
-  const res = await post(
-    { clientId, email: "invitee@wonka.example" },
-    internal,
+  // Driven through `asActor(...).run()` — the other half of the helper.
+  // `withRequest` opens its own context from the cookie, so here `run()` only
+  // has to nest cleanly; it is what a service-level test would use to give code
+  // that reads `getRequestId()` / `getActorId()` a context without a route.
+  const res = await internal.run(() =>
+    POST(request({ clientId, email: "invitee@wonka.example" }, internal)),
   );
   expect(res.status).toBe(200);
   const body = (await res.json()) as { url: string };

@@ -1,11 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import { afterAll, beforeAll } from "vitest";
-import {
-  createTestDb,
-  dropTestDb,
-  migrateUrlForDb,
-  testDbName,
-} from "@/test/db-admin";
+import { createTestDb, migrateUrlForDb, testDbName } from "@/test/db-admin";
 
 /**
  * Integration-test database harness.
@@ -17,8 +12,10 @@ import {
  *     CREATE DATABASE test_<hex> TEMPLATE keel_test_tmpl
  *
  * That is a file copy — milliseconds — where the old harness spawned
- * `prisma migrate deploy` per file (~2.7 s each, ~13 concurrent, flaky). The
- * copy carries the tables, the enums, the sequences *and the table privileges*,
+ * `prisma migrate deploy` per file (~2.7 s each, ~13 concurrent, flaky).
+ * Dropping it again is `global-setup.ts`'s job, not this file's (see the
+ * `afterAll` below). The copy carries the tables, the enums, the sequences
+ * *and the table privileges*,
  * so the `keel_app` REVOKEs from `audit_grants` /
  * `audit_default_privileges` are live in every clone (see `db.test.ts`, and
  * `append-only.test.ts` / `record-of-fact.test.ts` which prove it from
@@ -64,8 +61,6 @@ export function withTestDb(): () => PrismaClient {
   let dbName: string | undefined;
 
   beforeAll(async () => {
-    // Assign the name before any DDL runs: if `createTestDb` throws part-way,
-    // `afterAll` still knows what to drop.
     dbName = testDbName();
     await createTestDb(dbName);
     client = new PrismaClient({
@@ -73,14 +68,14 @@ export function withTestDb(): () => PrismaClient {
     });
   }, 120_000);
 
+  // Disconnect only — this file does NOT drop its database. `global-setup.ts`
+  // owns cleanup: a sweep at teardown once every worker has exited, plus a
+  // sweep at the start of the next run to catch whatever a hard-killed run left
+  // behind. That keeps ~26 forced checkpoints off the run's critical path.
   afterAll(async () => {
-    try {
-      await client?.$disconnect();
-    } finally {
-      if (dbName) await dropTestDb(dbName);
-      client = undefined;
-      dbName = undefined;
-    }
+    await client?.$disconnect();
+    client = undefined;
+    dbName = undefined;
   }, 120_000);
 
   return () => {

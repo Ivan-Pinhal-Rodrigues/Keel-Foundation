@@ -1,6 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import { afterAll, beforeAll, expect, test } from "vitest";
-import { appUrlForDb, createTestDb, dropTestDb, testDbName } from "@/test/db";
+import { appUrlForDb, createTestDb, testDbName } from "@/test/db";
 
 /**
  * Task 7 — audit-log immutability, proven from the app's own privilege level.
@@ -18,8 +18,6 @@ import { appUrlForDb, createTestDb, dropTestDb, testDbName } from "@/test/db";
  */
 
 let appDb: PrismaClient;
-// Mint the name before any DDL runs, so `afterAll` can always drop it even if
-// `createTestDb` throws part-way.
 const dbName = testDbName();
 
 beforeAll(async () => {
@@ -29,9 +27,9 @@ beforeAll(async () => {
   });
 }, 120_000);
 
+// Disconnect only — `global-setup.ts` sweeps the clone. See `withTestDb()`.
 afterAll(async () => {
   await appDb?.$disconnect();
-  await dropTestDb(dbName);
 }, 120_000);
 
 test("keel_app CAN INSERT and SELECT AuditEvent", async () => {

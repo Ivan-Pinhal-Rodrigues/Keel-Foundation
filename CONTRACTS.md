@@ -1211,8 +1211,22 @@ findings.
   database `keel_test_tmpl`, then seals it (`ALLOW_CONNECTIONS false`).
   `src/test/db.ts` (`withTestDb()`) then gives each test **file** its own
   disposable database via `CREATE DATABASE test_<hex> TEMPLATE keel_test_tmpl` —
-  a file copy, not a migration — and `DROP DATABASE … WITH (FORCE)` on teardown.
-  `withTestDb()` still returns a getter: `const db = withTestDb(); db()`.
+  a file copy, not a migration. `withTestDb()` still returns a getter:
+  `const db = withTestDb(); db()`.
+- **Every `CREATE` / `DROP DATABASE` is serialised behind a Postgres advisory
+  lock** (`db-admin.ts`, `DDL_LOCK_KEY`). This is load-bearing, not caution:
+  running them concurrently **crashes the whole cluster** — `server process …
+exited with exit code 2`, every connection dropped, restart into recovery.
+  Reproduced with plain `psql` and no vitest: 75 serial create+drop cycles are
+  fine, 13 concurrent sessions crash it, and 13 concurrent sessions taking the
+  lock are fine again. ~13 vitest workers hit `beforeAll` together, which is
+  exactly the failing shape. Serialising costs under a second per run.
+- **A test file never drops its own database**; its `afterAll` only
+  `$disconnect()`s. `global-setup.ts` owns all cleanup: one sweep at teardown,
+  after every worker has exited, which keeps ~26 forced checkpoints
+  (`DROP DATABASE` always requests `CHECKPOINT_IMMEDIATE | FORCE | WAIT`) off
+  the critical path. The cost is that every clone coexists for the length of a
+  run, ~9 MB each — ~226 MB peak for the full suite.
 - The clone carries the migrations' **table privileges**, not just their tables,
   so the `keel_app` REVOKEs from `audit_grants` /
   `audit_default_privileges` are live in every `test_<hex>` database.
@@ -1223,8 +1237,11 @@ findings.
   reaches teardown), and again at the end. `src/test/db-admin.ts` holds the
   shared plumbing and imports no vitest — globalSetup and the workers are
   separate processes, so everything they must agree on is a compile-time
-  constant there. `CREATE`/`DROP DATABASE` retry on SQLSTATE 55006 / 53300 with
-  jittered backoff; nothing else is retried.
+  constant there. `CREATE`/`DROP DATABASE` retry on SQLSTATE 55006 / 53300 /
+  57P03 and the cluster-restart messages, with jittered backoff; nothing else is
+  retried, and a retry caused by a restart logs a warning rather than hiding it.
+  `createTestDb` drops-then-creates so a killed `CREATE` can be retried without
+  hitting `42P04 already exists`.
 - Route-handler tests: `withRouteTestDb()` in `src/test/route-db.ts`. A route
   handler may not import a Prisma client, so it reaches the DB through the
   `@/server/db/client` singleton, and a route test must mock that module.
@@ -1239,10 +1256,17 @@ findings.
   const { db, asActor } = withRouteTestDb();
   ```
 
-  `asActor(user)` mints a real `Session` row and returns `{ cookie, headers,
-token, actor, run }` — `headers` spreads into a `Request` init, `run()` wraps a
-  direct service call in `runWithContext`. The six Phase 0 tests written before
-  this helper still carry the long form; their file headers point here.
+  `asActor(user)` mints a real `Session` row and returns
+  `{ cookie, headers, token, actor, run }` — `headers` spreads into a `Request`
+  init, `run()` wraps a direct service call in `runWithContext`. The six Phase 0
+  tests written before this helper still carry the long form; their file headers
+  point here.
+
+- `route-db.ts` shares `DB_NAME` as module state between the `vi.mock` factory
+  and `withRouteTestDb()`, so `vitest.config.ts` sets **`isolate: true`
+  explicitly** rather than relying on the default — a shared module instance
+  would collide two route files onto one test database. `withRouteTestDb()` also
+  throws if called twice in one file.
 
 - Component tests: first line `/** @vitest-environment jsdom */`, then
   `import { afterEach } from "vitest"; import { cleanup } from

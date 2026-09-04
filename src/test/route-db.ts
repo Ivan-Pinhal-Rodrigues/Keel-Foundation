@@ -4,12 +4,7 @@ import { afterAll, beforeAll } from "vitest";
 import { SESSION_COOKIE } from "@/lib/http/cookies";
 import { runWithContext } from "@/server/context";
 import type { Actor } from "@/server/policy/actor";
-import {
-  createTestDb,
-  dropTestDb,
-  migrateUrlForDb,
-  testDbName,
-} from "@/test/db-admin";
+import { createTestDb, migrateUrlForDb, testDbName } from "@/test/db-admin";
 
 /**
  * Route-handler test harness — the mock-and-lifecycle dance six Phase 0 route
@@ -44,10 +39,14 @@ import {
  *
  * They share this module. `DB_NAME` is minted once at module load and read by
  * both the mock factory (whenever the mocked module is first imported) and
- * `withRouteTestDb()` (at the test file's top level). Vitest isolates the module
- * graph per test file (`isolate: true`, the default), so each file gets its own
- * `route-db` instance and therefore its own database. That is also why the old
+ * `withRouteTestDb()` (at the test file's top level). That is also why the old
  * `vi.hoisted` block minting a name per file is no longer needed.
+ *
+ * This rests on each test file getting its own module instance, so
+ * `vitest.config.ts` sets `isolate: true` **explicitly** rather than leaning on
+ * the default — two route files sharing one `route-db` instance would share one
+ * database and stamp on each other's rows. `withRouteTestDb()` also refuses a
+ * second call within a file, which is the same mistake at closer range.
  *
  * ## Import hygiene
  *
@@ -145,27 +144,41 @@ export async function asActor(
   };
 }
 
+/** One `withRouteTestDb()` per file — see the guard in it. */
+let registered = false;
+
 /**
  * Register the per-file database lifecycle for a route test and hand back the
- * client the mocked singleton is bound to. Pair with
- * `vi.mock("@/server/db/client", routeDbClientMock)`.
+ * client the mocked singleton is bound to. Pair with:
+ *
+ *     vi.mock("@/server/db/client", async () =>
+ *       (await import("@/test/route-db")).routeDbClientMock(),
+ *     );
+ *     const { db, asActor } = withRouteTestDb();
  */
 export function withRouteTestDb(): {
   db: PrismaClient;
   asActor: typeof asActor;
 } {
+  if (registered) {
+    throw new Error(
+      "withRouteTestDb() called twice. One database is minted per module instance, " +
+        "so a second call would hand back the first call's database — and if two test " +
+        "files ever shared this module (vitest `isolate: false`), they would collide.",
+    );
+  }
+  registered = true;
+
   const db = routeDbClient();
 
   beforeAll(async () => {
     await createTestDb(DB_NAME);
   }, 180_000);
 
+  // Disconnect only — this file does NOT drop its database. `global-setup.ts`
+  // sweeps every clone at teardown instead. Same contract as `withTestDb()`.
   afterAll(async () => {
-    try {
-      await db.$disconnect();
-    } finally {
-      await dropTestDb(DB_NAME);
-    }
+    await db.$disconnect();
   }, 120_000);
 
   return { db, asActor };
