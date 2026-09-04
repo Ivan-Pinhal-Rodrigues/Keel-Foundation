@@ -30,6 +30,7 @@ Interfaces changed after the Phase 0 freeze. Each was reviewed and agreed with a
 - **plan-1a Task 8** — `LifecycleStepperProps` gains `blockedReason?: string` (rendered under a disabled Advance once every current-stage gate is checked — the non-gate reason: approval pending, no window; while gates are incomplete the gate-count hint still wins) and `Stage` gains `state?: "done" | "current" | "upcoming" | "blocked" | "reverted"`, an override that wins over the state derived from `currentStageKey` + array order. A stage with an explicit `state` is inert (no interactive gates, no Advance button); `"blocked"` / `"reverted"` add amber (`--warn`) / muted-red (`--crit`) node + label tints. Additive — an unset `state` and unset `blockedReason` are exactly the Phase 0 behaviour. Consumed by plan-03 (the change drawer — a rolled-back change renders every stage `reverted`; an approval-pending change shows `blockedReason` under a stuck Advance).
 - **plan-1a Task 9** — `DataTableProps.onRowClick` is now **optional** and `getRowId` moved above it in the type. A read-only display table (dashboards, portal) omits `onRowClick` and renders inert — no activator, no `<tr>` handler, no affordance. When set, row activation is a visually-hidden `<button>` in the first cell (keyboard path) plus a guarded `onClick` on the `<tr>` (mouse path); `role="row"` stays on the `<tr>`, with no `tabIndex` / `onKeyDown` — Phase 0's `<tr role="button">` around `<td>` gridcells was invalid ARIA. The `<tr>` guard early-returns when `event.target.closest("a,button,input,select,textarea,label")` is truthy, so an interactive element inside a `cell` (an actions column) fires only its own handler: **no `stopPropagation` needed**, superseding the Phase 0 consumer note. Additive for existing callers that already pass `onRowClick`. Consumed by plan-01 Task 5 (demand register), plan-02 (incident register), plan-04 (dashboards + portal).
 - **plan-1a Task 10** — `src/server/db/errors.ts` added (§7): `isUniqueViolation(e, target?)` / `isNotFound(e)`, typed `instanceof Prisma.PrismaClientKnownRequestError` P2002 / P2025 checks. `src/server/auth/invites.ts` drops its local duck-typed P2002 check for the shared helper (identical on the real transaction-scoped error, stricter elsewhere). `Client.name` is now `@unique` (migration `client_name_unique`) — seed and any Client insert must expect a name collision. Idempotent `prisma/seed.ts` (`pnpm seed`): `admin@keel.local` / `Keel-admin-2026` (4 internal hats) + Client "Northwind Traders". Consumed by plan-03 (convert idempotency), plan-01 (redeem race).
+- **plan-1a Task 13** — `src/server/audit/labels.ts` added (§2): the `AUDIT_ACTION_LABELS` registry maps audit action strings to human-readable phrases for timelines and activity feeds. Every audit-writing module appends its actions to the registry; spec-06's dashboard activity test iterates `AUDIT_ACTION_LABELS` keys to ensure no action lacks a label. `auditActionLabel(action)` returns the registered phrase or a humanized fallback (`"demand.value_scored"` → `"Demand value scored"`); `guestAuditActionLabel(action)` returns the phrase for guest-visible actions only (internal-only actions like `session.revoked` → `null`). Consumed by plan-01 (demand timeline), plan-04 (dashboards + portal activity feed).
 
 ---
 
@@ -311,6 +312,23 @@ export function writeAudit(
 - `requestId` is **not** an `AuditInput` field. `writeAudit` reads it from async
   context via `getRequestId()` (§9), which **throws `"no request context"`** if
   the caller is not inside `runWithContext` / `withRequest`.
+
+### `src/server/audit/labels.ts`
+
+The audit action → phrasing map for timelines and activity feeds. Each module
+that writes an audit action appends its entries to `AUDIT_ACTION_LABELS`. Phase 1
+tasks (plan-01: `demand.create` / `demand.decided` / …; plan-02: incident;
+plan-03: change + approval; plan-04: dashboard; plan-06: spec-06 dashboard
+exports) each update this registry so `guestAuditActionLabel` can govern feed
+visibility per actor kind.
+
+```ts
+export const AUDIT_ACTION_LABELS: Record<string, string>;
+/** The phrase, or a humanised fallback (`"demand.value_scored" → "Demand value scored"`). */
+export function auditActionLabel(action: string): string;
+/** For a guest-facing feed: the subset + guest phrasing (internal-only actions → null). */
+export function guestAuditActionLabel(action: string): string | null;
+```
 
 ### Record-of-fact tables
 
