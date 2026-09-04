@@ -10,24 +10,26 @@ import { createSession, getSessionAndUser } from "@/server/auth/session";
 import { getRequestId } from "@/server/context";
 import { logger } from "@/server/log";
 import { prisma as db } from "@/server/db/client";
-import { applyMigrationsToNewSchema, dropSchema } from "@/test/db";
+import { createTestDb, dropTestDb } from "@/test/db";
 
 /**
  * Same seam as the login route test: the wrapper reaches the database through
  * the app singleton (`getSessionAndUser` / `touchSession`), so the singleton
- * module is mocked and bound to a schema this file owns.
+ * module is mocked and bound to a database this file owns. (New route tests
+ * should use `withRouteTestDb()` from `@/test/route-db`, which packages this
+ * dance — see `guest-invites/__tests__/create.route.test.ts`.)
  */
-const { schema } = await vi.hoisted(async () => {
+const { dbName } = await vi.hoisted(async () => {
   const { randomBytes } = await import("node:crypto");
-  return { schema: `test_${randomBytes(6).toString("hex")}` };
+  return { dbName: `test_${randomBytes(6).toString("hex")}` };
 });
 
 vi.mock("@/server/db/client", async () => {
   const { PrismaClient } = await import("@prisma/client");
-  const { migrateUrlForSchema } = await import("@/test/db");
+  const { migrateUrlForDb } = await import("@/test/db");
   return {
     prisma: new PrismaClient({
-      datasources: { db: { url: migrateUrlForSchema(schema) } },
+      datasources: { db: { url: migrateUrlForDb(dbName) } },
     }),
   };
 });
@@ -43,7 +45,7 @@ let userId = "";
 let rawToken = "";
 
 beforeAll(async () => {
-  await applyMigrationsToNewSchema(schema);
+  await createTestDb(dbName);
   const u = await db.user.create({
     data: {
       email: "dev@keel.local",
@@ -63,7 +65,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await db.$disconnect();
-  await dropSchema(schema);
+  await dropTestDb(dbName);
 }, 120_000);
 
 const req = (init?: { cookie?: string; requestId?: string }) => {

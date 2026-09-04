@@ -4,22 +4,23 @@ import { POST } from "@/app/api/guest-invites/[token]/redeem/route";
 import { sha256 } from "@/server/auth/invites";
 import { getSessionAndUser } from "@/server/auth/session";
 import { prisma as db } from "@/server/db/client";
-import { applyMigrationsToNewSchema, dropSchema } from "@/test/db";
+import { createTestDb, dropTestDb } from "@/test/db";
 
 /** Same DB seam as the login route test — the singleton is mocked and bound to
- *  a schema this file owns, so `runInTransaction` (redeem) and `createSession`
- *  land in `test_*`. */
-const { schema } = await vi.hoisted(async () => {
+ *  a database this file owns, so `runInTransaction` (redeem) and `createSession`
+ *  land in `test_*`. (New route tests should use `withRouteTestDb()` from
+ *  `@/test/route-db`, which packages this dance — see `create.route.test.ts`.) */
+const { dbName } = await vi.hoisted(async () => {
   const { randomBytes: rb } = await import("node:crypto");
-  return { schema: `test_${rb(6).toString("hex")}` };
+  return { dbName: `test_${rb(6).toString("hex")}` };
 });
 
 vi.mock("@/server/db/client", async () => {
   const { PrismaClient } = await import("@prisma/client");
-  const { migrateUrlForSchema } = await import("@/test/db");
+  const { migrateUrlForDb } = await import("@/test/db");
   return {
     prisma: new PrismaClient({
-      datasources: { db: { url: migrateUrlForSchema(schema) } },
+      datasources: { db: { url: migrateUrlForDb(dbName) } },
     }),
   };
 });
@@ -27,7 +28,7 @@ vi.mock("@/server/db/client", async () => {
 let clientId = "";
 
 beforeAll(async () => {
-  await applyMigrationsToNewSchema(schema);
+  await createTestDb(dbName);
   const client = await db.client.create({
     data: { name: "Cyberdyne", isActive: true },
   });
@@ -36,7 +37,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await db.$disconnect();
-  await dropSchema(schema);
+  await dropTestDb(dbName);
 }, 120_000);
 
 async function seedInvite(expiresAt = new Date(Date.now() + 7 * 86_400_000)) {

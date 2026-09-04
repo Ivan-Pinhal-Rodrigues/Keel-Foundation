@@ -1,10 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import { afterAll, beforeAll, expect, test } from "vitest";
-import {
-  applyMigrationsToNewSchema,
-  appUrlForSchema,
-  dropSchema,
-} from "@/test/db";
+import { appUrlForDb, createTestDb, dropTestDb, testDbName } from "@/test/db";
 
 /**
  * Task 7 — audit-log immutability, proven from the app's own privilege level.
@@ -12,25 +8,31 @@ import {
  * The `audit_grants` migration gives `keel_app` (the restricted runtime role)
  * full DML on every table in the schema it runs against, then REVOKEs UPDATE and
  * DELETE on "AuditEvent". These tests connect as keel_app — not keel_migrate,
- * which owns the schema and could never be constrained this way — against a
- * disposable schema carrying the full migration history, and assert an audit row
- * can be written once and thereafter neither changed nor removed.
+ * which owns the database and could never be constrained this way — against a
+ * disposable database carrying the full migration history, and assert an audit
+ * row can be written once and thereafter neither changed nor removed.
+ *
+ * Since Task 11 that database is a `CREATE DATABASE … TEMPLATE` clone rather
+ * than a freshly-migrated schema, so this file is also the proof that the clone
+ * carries the migration's *table privileges* and not just its tables.
  */
 
 let appDb: PrismaClient;
-let schema: string;
+// Mint the name before any DDL runs, so `afterAll` can always drop it even if
+// `createTestDb` throws part-way.
+const dbName = testDbName();
 
 beforeAll(async () => {
-  schema = await applyMigrationsToNewSchema(); // keel_migrate: CREATE + migrate
+  await createTestDb(dbName); // keel_migrate: clone the migrated template
   appDb = new PrismaClient({
-    datasources: { db: { url: appUrlForSchema(schema) } }, // keel_app credentials
+    datasources: { db: { url: appUrlForDb(dbName) } }, // keel_app credentials
   });
 }, 120_000);
 
 afterAll(async () => {
-  await appDb.$disconnect();
-  await dropSchema(schema);
-});
+  await appDb?.$disconnect();
+  await dropTestDb(dbName);
+}, 120_000);
 
 test("keel_app CAN INSERT and SELECT AuditEvent", async () => {
   await appDb.$executeRawUnsafe(

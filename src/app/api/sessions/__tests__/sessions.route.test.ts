@@ -4,19 +4,23 @@ import { GET } from "@/app/api/sessions/route";
 import { sessionsResponse } from "@/lib/api/schemas/sessions";
 import { createSession } from "@/server/auth/session";
 import { prisma as db } from "@/server/db/client";
-import { applyMigrationsToNewSchema, dropSchema } from "@/test/db";
+import { createTestDb, dropTestDb } from "@/test/db";
 
-const { schema } = await vi.hoisted(async () => {
+/** Same DB seam as the login route test — the singleton is mocked and bound to
+ *  a database this file owns. (New route tests should use `withRouteTestDb()`
+ *  from `@/test/route-db`, which packages this dance — see
+ *  `guest-invites/__tests__/create.route.test.ts`.) */
+const { dbName } = await vi.hoisted(async () => {
   const { randomBytes } = await import("node:crypto");
-  return { schema: `test_${randomBytes(6).toString("hex")}` };
+  return { dbName: `test_${randomBytes(6).toString("hex")}` };
 });
 
 vi.mock("@/server/db/client", async () => {
   const { PrismaClient } = await import("@prisma/client");
-  const { migrateUrlForSchema } = await import("@/test/db");
+  const { migrateUrlForDb } = await import("@/test/db");
   return {
     prisma: new PrismaClient({
-      datasources: { db: { url: migrateUrlForSchema(schema) } },
+      datasources: { db: { url: migrateUrlForDb(dbName) } },
     }),
   };
 });
@@ -39,7 +43,7 @@ const mkUser = (email: string, hats: ("DEVELOPER" | "TECHNICAL_APPROVER")[]) =>
   });
 
 beforeAll(async () => {
-  await applyMigrationsToNewSchema(schema);
+  await createTestDb(dbName);
   A = (await mkUser("a@keel.local", ["DEVELOPER"])).id;
   B = (await mkUser("b@keel.local", ["DEVELOPER"])).id;
   T = (await mkUser("t@keel.local", ["TECHNICAL_APPROVER"])).id;
@@ -47,7 +51,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await db.$disconnect();
-  await dropSchema(schema);
+  await dropTestDb(dbName);
 }, 120_000);
 
 /** A fresh session for `userId`; returns the raw cookie token. */

@@ -2,32 +2,34 @@ import { afterAll, afterEach, beforeAll, expect, test, vi } from "vitest";
 import { getCurrentActor, whoami } from "@/server/auth/current";
 import { createSession } from "@/server/auth/session";
 import { prisma as db } from "@/server/db/client";
-import { applyMigrationsToNewSchema, dropSchema } from "@/test/db";
+import { createTestDb, dropTestDb } from "@/test/db";
 
 /**
  * `getCurrentActor()` / `whoami()` resolve the session through the
  * `@/server/db/client` singleton — `getSessionAndUser(token)` with no client
  * argument, because a React Server Component caller has none to pass. That is
  * the same DB seam as `with-request.test.ts` and the route tests: mock the
- * singleton and bind it to a schema this file owns, so the cookie a test sets
- * actually resolves.
+ * singleton and bind it to a database this file owns, so the cookie a test sets
+ * actually resolves. (New route tests should use `withRouteTestDb()` from
+ * `@/test/route-db`, which packages this dance — see
+ * `app/api/guest-invites/__tests__/create.route.test.ts`.)
  *
  * (The brief sketched `withTestDb()` + `db() as never`, but that only binds the
  * write inside `createSession`; the read inside `resolve()` still goes through
- * the singleton to `?schema=public` and finds nothing. The test cases and the
+ * the singleton to the dev database and finds nothing. The test cases and the
  * `next/headers` mock below are otherwise verbatim from the brief.)
  */
-const { schema } = await vi.hoisted(async () => {
+const { dbName } = await vi.hoisted(async () => {
   const { randomBytes } = await import("node:crypto");
-  return { schema: `test_${randomBytes(6).toString("hex")}` };
+  return { dbName: `test_${randomBytes(6).toString("hex")}` };
 });
 
 vi.mock("@/server/db/client", async () => {
   const { PrismaClient } = await import("@prisma/client");
-  const { migrateUrlForSchema } = await import("@/test/db");
+  const { migrateUrlForDb } = await import("@/test/db");
   return {
     prisma: new PrismaClient({
-      datasources: { db: { url: migrateUrlForSchema(schema) } },
+      datasources: { db: { url: migrateUrlForDb(dbName) } },
     }),
   };
 });
@@ -43,12 +45,12 @@ vi.mock("next/headers", () => ({
 }));
 
 beforeAll(async () => {
-  await applyMigrationsToNewSchema(schema);
+  await createTestDb(dbName);
 }, 180_000);
 
 afterAll(async () => {
   await db.$disconnect();
-  await dropSchema(schema);
+  await dropTestDb(dbName);
 }, 120_000);
 
 afterEach(() => {

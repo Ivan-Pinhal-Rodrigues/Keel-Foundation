@@ -4,35 +4,38 @@ import { POST } from "@/app/api/auth/login/route";
 import { hashPassword } from "@/server/auth/password";
 import { getSessionAndUser } from "@/server/auth/session";
 import { prisma as db } from "@/server/db/client";
-import { applyMigrationsToNewSchema, dropSchema } from "@/test/db";
+import { createTestDb, dropTestDb } from "@/test/db";
 
 /**
- * Testability seam.
+ * Testability seam. (New route tests should use `withRouteTestDb()` from
+ * `@/test/route-db`, which packages this whole dance — see
+ * `guest-invites/__tests__/create.route.test.ts`.)
  *
  * The route reaches the database through the app singleton — by design: route
  * handlers may not import a Prisma client, and `session.ts`'s optional client
  * parameter is for transactions, not for tests. So the singleton module itself
  * is mocked, bound to a schema this file owns. `login.ts` and `tx.ts`'s
  * `runInTransaction` resolve to the same mocked module, so the whole request
- * path — verify, session insert, audit insert — runs in `test_*` and `public`
- * is never touched. The test then imports that same client to seed and assert.
+ * path — verify, session insert, audit insert — runs in `test_*` and the dev
+ * database is never touched. The test then imports that same client to seed and
+ * assert.
  *
- * The schema name is minted in `vi.hoisted` because the mock factory runs
+ * The database name is minted in `vi.hoisted` because the mock factory runs
  * during the import phase, before any top-level statement or hook.
  */
-const { schema } = await vi.hoisted(async () => {
+const { dbName } = await vi.hoisted(async () => {
   // `vi.hoisted` runs before this file's imports, so `node:crypto` is pulled in
   // here rather than used from the import above.
   const { randomBytes } = await import("node:crypto");
-  return { schema: `test_${randomBytes(6).toString("hex")}` };
+  return { dbName: `test_${randomBytes(6).toString("hex")}` };
 });
 
 vi.mock("@/server/db/client", async () => {
   const { PrismaClient } = await import("@prisma/client");
-  const { migrateUrlForSchema } = await import("@/test/db");
+  const { migrateUrlForDb } = await import("@/test/db");
   return {
     prisma: new PrismaClient({
-      datasources: { db: { url: migrateUrlForSchema(schema) } },
+      datasources: { db: { url: migrateUrlForDb(dbName) } },
     }),
   };
 });
@@ -42,7 +45,7 @@ const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
 let userId = "";
 
 beforeAll(async () => {
-  await applyMigrationsToNewSchema(schema);
+  await createTestDb(dbName);
   const u = await db.user.create({
     data: {
       email: "cto@keel.local",
@@ -57,7 +60,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await db.$disconnect();
-  await dropSchema(schema);
+  await dropTestDb(dbName);
 }, 120_000);
 
 /** One login request. Each test uses its own client IP so the per-IP rate

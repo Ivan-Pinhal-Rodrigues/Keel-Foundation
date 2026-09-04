@@ -1206,14 +1206,44 @@ findings.
 
 ### Test infrastructure
 
-- `src/test/db.ts` (`withTestDb()`) spawns a `prisma migrate deploy` child
-  process per test **file**, into a uniquely-named disposable Postgres schema
-  (`test_<hex>`), and drops it on teardown. This applies the full migration
-  chain from zero on every `pnpm test` run.
-- Running the full suite (~48 files, forks pool) can transiently fail a batch
-  with `prisma migrate deploy failed for schema "test_…"` under load — this is
-  contention, not a real failure. Re-run. A shared template DB or serialised
-  migrate step is a Phase 2 improvement.
+- **Migrate once, clone per file.** `src/test/global-setup.ts` (Vitest
+  `globalSetup`) runs one `prisma migrate deploy` per suite run, into a template
+  database `keel_test_tmpl`, then seals it (`ALLOW_CONNECTIONS false`).
+  `src/test/db.ts` (`withTestDb()`) then gives each test **file** its own
+  disposable database via `CREATE DATABASE test_<hex> TEMPLATE keel_test_tmpl` —
+  a file copy, not a migration — and `DROP DATABASE … WITH (FORCE)` on teardown.
+  `withTestDb()` still returns a getter: `const db = withTestDb(); db()`.
+- The clone carries the migrations' **table privileges**, not just their tables,
+  so the `keel_app` REVOKEs from `audit_grants` /
+  `audit_default_privileges` are live in every `test_<hex>` database.
+  `src/test/db.test.ts` pins that directly; `append-only.test.ts` and
+  `record-of-fact.test.ts` prove it from `keel_app`'s own privilege level.
+- `global-setup.ts` is self-healing: it drops the template and sweeps every
+  leaked `test_*` database at the **start** of a run (a hard-killed run never
+  reaches teardown), and again at the end. `src/test/db-admin.ts` holds the
+  shared plumbing and imports no vitest — globalSetup and the workers are
+  separate processes, so everything they must agree on is a compile-time
+  constant there. `CREATE`/`DROP DATABASE` retry on SQLSTATE 55006 / 53300 with
+  jittered backoff; nothing else is retried.
+- Route-handler tests: `withRouteTestDb()` in `src/test/route-db.ts`. A route
+  handler may not import a Prisma client, so it reaches the DB through the
+  `@/server/db/client` singleton, and a route test must mock that module.
+  `vi.mock` is hoisted above every import and cannot even name an imported
+  helper, so the file keeps two statements — see
+  `src/app/api/guest-invites/__tests__/create.route.test.ts`:
+
+  ```ts
+  vi.mock("@/server/db/client", async () =>
+    (await import("@/test/route-db")).routeDbClientMock(),
+  );
+  const { db, asActor } = withRouteTestDb();
+  ```
+
+  `asActor(user)` mints a real `Session` row and returns `{ cookie, headers,
+token, actor, run }` — `headers` spreads into a `Request` init, `run()` wraps a
+  direct service call in `runWithContext`. The six Phase 0 tests written before
+  this helper still carry the long form; their file headers point here.
+
 - Component tests: first line `/** @vitest-environment jsdom */`, then
   `import { afterEach } from "vitest"; import { cleanup } from
 "@testing-library/react"; afterEach(cleanup);`. jsdom shims live in

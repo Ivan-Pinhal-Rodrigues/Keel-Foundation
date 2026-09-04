@@ -1,10 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import { afterAll, beforeAll, expect, test } from "vitest";
-import {
-  appUrlForSchema,
-  applyMigrationsToNewSchema,
-  dropSchema,
-} from "@/test/db";
+import { appUrlForDb, createTestDb, dropTestDb, testDbName } from "@/test/db";
 
 /**
  * plan-1a Task 5 — record-of-fact immutability, proven from the app's own
@@ -14,26 +10,29 @@ import {
  * `ApprovalDecision` and `PostImplementationReview` from `keel_app` (the
  * restricted runtime role) — the same lock `AuditEvent` has had since
  * `20260901200800_audit_grants` (see `append-only.test.ts`). These tests connect
- * as `keel_app` against a disposable schema carrying the full migration history
- * and assert those rows can be appended and read but never changed or removed,
- * while the sibling mutable tables (`ApprovalRequest` / `ApprovalStep`) keep full
- * DML.
+ * as `keel_app` against a disposable database carrying the full migration
+ * history and assert those rows can be appended and read but never changed or
+ * removed, while the sibling mutable tables (`ApprovalRequest` / `ApprovalStep`)
+ * keep full DML.
  *
  * `scripts/check-migrations.mjs` asserts the same grant shape on the dev/public
- * DB; this is the guard for every `test_<hex>` schema the migration runs into.
+ * DB; this is the guard for every `test_<hex>` clone. Since Task 11 the clone is
+ * a `CREATE DATABASE … TEMPLATE` copy, so this file also proves those REVOKEs
+ * survive the copy.
  */
 
 let appDb: PrismaClient; // keel_app — the restricted runtime role
-let schema: string;
+// Mint the name before any DDL runs, so `afterAll` can always drop it.
+const dbName = testDbName();
 
 let stepId = "";
 let userId = "";
 let changeId = "";
 
 beforeAll(async () => {
-  schema = await applyMigrationsToNewSchema();
+  await createTestDb(dbName);
   appDb = new PrismaClient({
-    datasources: { db: { url: appUrlForSchema(schema) } }, // keel_app credentials
+    datasources: { db: { url: appUrlForDb(dbName) } }, // keel_app credentials
   });
 
   // keel_app has full DML on the mutable tables — seed the FK chains with it.
@@ -78,9 +77,9 @@ beforeAll(async () => {
 }, 120_000);
 
 afterAll(async () => {
-  await appDb.$disconnect();
-  await dropSchema(schema);
-});
+  await appDb?.$disconnect();
+  await dropTestDb(dbName);
+}, 120_000);
 
 test("keel_app CAN append and read ApprovalDecision", async () => {
   const decision = await appDb.approvalDecision.create({

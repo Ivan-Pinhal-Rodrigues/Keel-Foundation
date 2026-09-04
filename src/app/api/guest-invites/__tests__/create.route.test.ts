@@ -1,75 +1,63 @@
-import { afterAll, beforeAll, expect, test, vi } from "vitest";
+import { beforeAll, expect, test, vi } from "vitest";
 import { POST } from "@/app/api/guest-invites/route";
-import { createSession } from "@/server/auth/session";
-import { prisma as db } from "@/server/db/client";
-import { applyMigrationsToNewSchema, dropSchema } from "@/test/db";
+import { type TestActor, withRouteTestDb } from "@/test/route-db";
 
-/** Same DB seam as the login route test: the singleton is mocked and bound to a
- *  schema this file owns, so `withRequest` (session resolution) and
- *  `runInTransaction` (the invite write + audit) all land in `test_*`. */
-const { schema } = await vi.hoisted(async () => {
-  const { randomBytes } = await import("node:crypto");
-  return { schema: `test_${randomBytes(6).toString("hex")}` };
-});
-
-vi.mock("@/server/db/client", async () => {
-  const { PrismaClient } = await import("@prisma/client");
-  const { migrateUrlForSchema } = await import("@/test/db");
-  return {
-    prisma: new PrismaClient({
-      datasources: { db: { url: migrateUrlForSchema(schema) } },
-    }),
-  };
-});
+/**
+ * The DB seam and the per-file lifecycle both live in `@/test/route-db` — see
+ * that file for why the `vi.mock` factory has to reach it by dynamic import.
+ * These two statements replace the ~25 lines the other Phase 0 route tests
+ * still carry.
+ */
+vi.mock("@/server/db/client", async () =>
+  (await import("@/test/route-db")).routeDbClientMock(),
+);
+const { db, asActor } = withRouteTestDb();
 
 let clientId = "";
-let internalToken = "";
-let guestToken = "";
+let internal: TestActor;
+let guest: TestActor;
 
 beforeAll(async () => {
-  await applyMigrationsToNewSchema(schema);
-
   const client = await db.client.create({
     data: { name: "Wonka Industries", isActive: true },
   });
   clientId = client.id;
 
-  const internal = await db.user.create({
-    data: {
-      email: "pm@keel.local",
-      passwordHash: "x",
-      displayName: "PM",
-      kind: "INTERNAL",
-      hats: ["DEVELOPER"],
-    },
-  });
-  internalToken = (await createSession(internal.id, { ip: "10.0.0.1" })).token;
+  internal = await asActor(
+    await db.user.create({
+      data: {
+        email: "pm@keel.local",
+        passwordHash: "x",
+        displayName: "PM",
+        kind: "INTERNAL",
+        hats: ["DEVELOPER"],
+      },
+    }),
+    { ip: "10.0.0.1" },
+  );
 
-  const guest = await db.user.create({
-    data: {
-      email: "existing-guest@wonka.example",
-      passwordHash: "x",
-      displayName: "Guest",
-      kind: "GUEST",
-      hats: [],
-      clientId: client.id,
-    },
-  });
-  guestToken = (await createSession(guest.id, { ip: "10.0.0.2" })).token;
+  guest = await asActor(
+    await db.user.create({
+      data: {
+        email: "existing-guest@wonka.example",
+        passwordHash: "x",
+        displayName: "Guest",
+        kind: "GUEST",
+        hats: [],
+        clientId: client.id,
+      },
+    }),
+    { ip: "10.0.0.2" },
+  );
 }, 180_000);
 
-afterAll(async () => {
-  await db.$disconnect();
-  await dropSchema(schema);
-}, 120_000);
-
-const post = (body: unknown, token?: string) =>
+const post = (body: unknown, actor?: TestActor) =>
   POST(
     new Request("http://localhost:3000/api/guest-invites", {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        ...(token ? { cookie: `authjs.session-token=${token}` } : {}),
+        ...(actor ? actor.headers : {}),
       },
       body: typeof body === "string" ? body : JSON.stringify(body),
     }),
@@ -78,7 +66,7 @@ const post = (body: unknown, token?: string) =>
 test("an internal actor gets 200 { url } and a GuestInvite + audit row land", async () => {
   const res = await post(
     { clientId, email: "invitee@wonka.example" },
-    internalToken,
+    internal,
   );
   expect(res.status).toBe(200);
   const body = (await res.json()) as { url: string };
@@ -101,7 +89,7 @@ test("a guest actor is refused with 403 { error: forbidden }", async () => {
   const before = await db.guestInvite.count();
   const res = await post(
     { clientId, email: "guest-tried@wonka.example" },
-    guestToken,
+    guest,
   );
   expect(res.status).toBe(403);
   expect(await res.json()).toEqual({ error: "forbidden" });
@@ -109,11 +97,11 @@ test("a guest actor is refused with 403 { error: forbidden }", async () => {
 });
 
 test("a malformed body is 400", async () => {
-  expect((await post({ clientId }, internalToken)).status).toBe(400);
+  expect((await post({ clientId }, internal)).status).toBe(400);
   expect(
-    (await post({ clientId, email: "not-an-email" }, internalToken)).status,
+    (await post({ clientId, email: "not-an-email" }, internal)).status,
   ).toBe(400);
-  expect((await post("}{ not json", internalToken)).status).toBe(400);
+  expect((await post("}{ not json", internal)).status).toBe(400);
 });
 
 test("no session cookie is 401 (withRequest / getActor)", async () => {
