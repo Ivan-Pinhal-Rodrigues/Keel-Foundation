@@ -133,3 +133,33 @@ test("two redemptions racing one token: one wins, one GoneErrors, one user resul
   });
   expect(consumed.redeemedAt).not.toBeNull();
 });
+
+test("two invites for one email, redeemed concurrently: loser GoneErrors via the unique-index backstop", async () => {
+  const { client } = await seedInvite();
+  const email = `dup-${randomBytes(5).toString("hex")}@stark.example`;
+  const mk = async () => {
+    const raw = randomBytes(32).toString("base64url");
+    await db().guestInvite.create({
+      data: {
+        token: sha256(raw),
+        clientId: client.id,
+        email,
+        createdById: "u-internal",
+        expiresAt: new Date(Date.now() + 7 * 86_400_000),
+      },
+    });
+    return raw;
+  };
+  const [a, b] = [await mk(), await mk()];
+  const results = await Promise.allSettled([
+    redeemTxn(a, "A"),
+    redeemTxn(b, "B"),
+  ]);
+  expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+  const rej = results.filter(
+    (r): r is PromiseRejectedResult => r.status === "rejected",
+  );
+  expect(rej).toHaveLength(1);
+  expect(rej[0]?.reason).toBeInstanceOf(GoneError);
+  expect(await db().user.count({ where: { email } })).toBe(1);
+});
