@@ -1097,8 +1097,9 @@ export type TimelineProps = {
 ### `LifecycleStepper` — `src/components/LifecycleStepper/LifecycleStepper.tsx`
 
 Vertical rail of stages, each with its exit-gate checklist and — on the current
-stage — a gated Advance button. Client component. Stage state is derived purely
-from `currentStageKey` and array order. See **Consumer notes**.
+stage — a gated Advance button. Client component. Stage state is derived from
+`currentStageKey` and array order unless a `Stage.state` override is set. See
+**Consumer notes**.
 
 ```ts
 export type GateItem = {
