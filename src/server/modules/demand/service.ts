@@ -8,9 +8,15 @@ import { type Actor, isInternal } from "@/server/policy/actor";
 import { authorize } from "@/server/policy/authorize";
 import { ForbiddenError, NotFoundError } from "@/server/policy/errors";
 import { assertVisibleToGuest, scopeToClient } from "@/server/policy/scope";
-import { requireInternal } from "@/server/policy/subjects/helpers";
-import { serializeDemand } from "./serialize";
+import {
+  requireAnyHat,
+  requireInternal,
+} from "@/server/policy/subjects/helpers";
+import { guestStatusLabel, serializeDemand } from "./serialize";
 import { assertTransition, worthComplete } from "./state";
+
+/** The hats that may record or reject a worth decision (spec 00 §4.2). */
+const WORTH_DECIDERS = ["BUSINESS_APPROVER", "TECHNICAL_APPROVER"] as const;
 
 /**
  * The demand use cases: create / list / get (`plans/plan-01-demand.md` Task 2).
@@ -157,10 +163,12 @@ export async function startTriage(
   tx: PrismaTransaction,
   id: string,
 ): Promise<void> {
-  const row = await loadDemandOr404(tx, id);
-  // "an internal user picks up a demand" — there is no `demand.triage` action;
-  // the only gate is that the actor is internal.
+  // Gate before the load, uniformly across this module: an unauthorised caller
+  // is denied (403) whether or not the id exists, so the endpoint cannot be used
+  // to probe for demands. "An internal user picks up a demand" — there is no
+  // `demand.triage` action; the only gate is that the actor is internal.
   requireInternal(actor);
+  const row = await loadDemandOr404(tx, id);
   assertTransition(row.status, "TRIAGING");
 
   await tx.demand.update({ where: { id }, data: { status: "TRIAGING" } });
@@ -193,14 +201,8 @@ export async function scoreValue(
   id: string,
   input: { businessValue: string; valueScore?: number },
 ): Promise<void> {
+  authorize(actor, "demand.score.value", { type: "demand", id });
   const row = await loadDemandOr404(tx, id);
-  authorize(actor, "demand.score.value", {
-    type: "demand",
-    id,
-    submittedById: row.submittedById,
-    clientId: row.clientId,
-    status: row.status,
-  });
   if (row.status !== "TRIAGING") {
     throw new ForbiddenError("value can only be scored during triage");
   }
@@ -237,14 +239,8 @@ export async function scoreEffort(
   id: string,
   input: { effort: $Enums.Effort; feasibility?: string },
 ): Promise<void> {
+  authorize(actor, "demand.score.effort", { type: "demand", id });
   const row = await loadDemandOr404(tx, id);
-  authorize(actor, "demand.score.effort", {
-    type: "demand",
-    id,
-    submittedById: row.submittedById,
-    clientId: row.clientId,
-    status: row.status,
-  });
   if (row.status !== "TRIAGING") {
     throw new ForbiddenError("effort can only be scored during triage");
   }
@@ -281,18 +277,11 @@ export async function setCostOfDelay(
   id: string,
   input: { costOfDelay: string },
 ): Promise<void> {
-  const row = await loadDemandOr404(tx, id);
   // spec §8.2: "any internal user" edits cost of delay. There is no dedicated
-  // action — `demand.view` gives the guest cross-client 404, and `requireInternal`
-  // is the edit right.
-  authorize(actor, "demand.view", {
-    type: "demand",
-    id,
-    submittedById: row.submittedById,
-    clientId: row.clientId,
-    status: row.status,
-  });
+  // action; `requireInternal` is the edit right — gated before the load like the
+  // rest of this module (a guest is denied 403 regardless of the id).
   requireInternal(actor);
+  const row = await loadDemandOr404(tx, id);
 
   await tx.worthAssessment.upsert({
     where: { demandId: id },
@@ -310,4 +299,222 @@ export async function setCostOfDelay(
     payload: {},
   });
   await maybeCompleteWorth(tx, id, row.status);
+}
+
+/**
+ * The worth decision, the outright reject, and the single-approver override
+ * (`plans/plan-01-demand.md` Task 4, reconciliation ruling 4).
+ *
+ * `decideDemand` records `PURSUE` / `PARK` → `APPROVED`, `DROP` → `REJECTED`.
+ * The SoD guard lives in the `demand.decide` policy rule: when the actor is the
+ * demand's submitter it throws `SegregationError("demand.decide.override")` →
+ * 409. The caller resends with a `>= 20`-char `overrideJustification`; the
+ * service then runs the hat check WITHOUT the SoD guard, flags the assessment
+ * `isSingleApproverOverride`, and writes BOTH a `demand.decided` and a
+ * `demand.decide.override` audit event.
+ *
+ * A demand parked at `APPROVED` (`worth.decision === "PARK"`) may be re-decided
+ * — the `APPROVED` status is not a declared source for `assertTransition`, so
+ * that call is skipped for the re-decide path.
+ */
+
+/** Load a demand + its worth row, or 404. */
+async function loadDemandWithWorthOr404(tx: PrismaTransaction, id: string) {
+  const row = await tx.demand.findUnique({
+    where: { id },
+    include: { worth: true },
+  });
+  if (!row) throw new NotFoundError("not found");
+  return row;
+}
+
+/**
+ * Notify the demand's submitter of a decision / rejection outcome: in-app
+ * always, plus an email when the submitter is a guest (the guest-safe
+ * `demand_decided` template, carrying the already-rendered plain-word status).
+ */
+async function notifySubmitterOfOutcome(
+  tx: PrismaTransaction,
+  args: {
+    demandId: string;
+    submittedById: string;
+    ref: string;
+    summary: string;
+    guestStatus: string;
+  },
+): Promise<void> {
+  const submitter = await tx.user.findUnique({
+    where: { id: args.submittedById },
+    select: { kind: true },
+  });
+  await emitNotification(tx, {
+    recipients: { userIds: [args.submittedById] },
+    kind: "STATUS_CHANGED",
+    subjectType: "Demand",
+    subjectId: args.demandId,
+    summary: args.summary,
+    email:
+      submitter?.kind === "GUEST"
+        ? {
+            template: "demand_decided",
+            payload: { ref: args.ref, status: args.guestStatus },
+          }
+        : undefined,
+  });
+}
+
+export async function decideDemand(
+  actor: Actor,
+  tx: PrismaTransaction,
+  id: string,
+  input: {
+    decision: $Enums.WorthDecision;
+    note?: string;
+    overrideJustification?: string;
+  },
+): Promise<void> {
+  // Gate before the load: a guest / non-approver is denied 403 regardless of
+  // the id. The SoD-aware check runs below, once the submitter is known.
+  requireAnyHat(actor, WORTH_DECIDERS);
+
+  const row = await loadDemandWithWorthOr404(tx, id);
+  const worth = row.worth;
+
+  const isSubmitter = actor.id === row.submittedById;
+  const override =
+    typeof input.overrideJustification === "string" &&
+    input.overrideJustification.trim().length >= 20;
+  const singleApproverOverride = isSubmitter && override;
+
+  if (singleApproverOverride) {
+    // Ruling 4: the hat check WITHOUT the SoD guard (already asserted above).
+    requireAnyHat(actor, WORTH_DECIDERS);
+  } else {
+    // Throws SegregationError("demand.decide.override") for an un-justified
+    // submitter — the route lets it propagate to a 409.
+    authorize(actor, "demand.decide", {
+      type: "demand",
+      id,
+      submittedById: row.submittedById,
+      clientId: row.clientId,
+      status: row.status,
+    });
+  }
+
+  const isReDecide = row.status === "APPROVED" && worth?.decision === "PARK";
+  if (row.status !== "WORTH_ASSESSED" && !isReDecide) {
+    throw new ForbiddenError("demand is not awaiting a worth decision");
+  }
+  if (!worth || !worthComplete(worth)) {
+    throw new ForbiddenError("worth assessment incomplete");
+  }
+
+  const target: $Enums.DemandStatus =
+    input.decision === "DROP" ? "REJECTED" : "APPROVED";
+  if (!isReDecide) assertTransition(row.status, target);
+
+  const justification = singleApproverOverride
+    ? input.overrideJustification!.trim()
+    : null;
+
+  await tx.worthAssessment.update({
+    where: { demandId: id },
+    data: {
+      decision: input.decision,
+      decisionNote: input.note ?? null,
+      decidedById: actor.id,
+      isSingleApproverOverride: singleApproverOverride,
+      overrideJustification: justification,
+    },
+  });
+  await tx.demand.update({
+    where: { id },
+    data: {
+      status: target,
+      decidedAt: new Date(),
+      rejectionReason: input.decision === "DROP" ? (input.note ?? null) : null,
+    },
+  });
+
+  await writeAudit(tx, {
+    actorId: actor.id,
+    action: "demand.decided",
+    subjectType: "Demand",
+    subjectId: id,
+    payload: {
+      decision: input.decision,
+      valueScore: worth.valueScore,
+      effort: worth.effort,
+    },
+  });
+  if (singleApproverOverride) {
+    await writeAudit(tx, {
+      actorId: actor.id,
+      action: "demand.decide.override",
+      subjectType: "Demand",
+      subjectId: id,
+      payload: { justification },
+    });
+  }
+
+  await notifySubmitterOfOutcome(tx, {
+    demandId: id,
+    submittedById: row.submittedById,
+    ref: row.ref,
+    summary: `Your demand "${row.title}" was ${
+      input.decision === "PURSUE"
+        ? "approved"
+        : input.decision === "PARK"
+          ? "parked"
+          : "declined"
+    }`,
+    guestStatus: guestStatusLabel(target, input.decision, input.note ?? null),
+  });
+}
+
+export async function rejectDemand(
+  actor: Actor,
+  tx: PrismaTransaction,
+  id: string,
+  input: { reason: string },
+): Promise<void> {
+  authorize(actor, "demand.reject", { type: "demand", id });
+
+  const row = await loadDemandWithWorthOr404(tx, id);
+
+  const isReDecide =
+    row.status === "APPROVED" && row.worth?.decision === "PARK";
+  if (row.status !== "WORTH_ASSESSED" && !isReDecide) {
+    throw new ForbiddenError("demand is not awaiting a worth decision");
+  }
+  if (!isReDecide) assertTransition(row.status, "REJECTED");
+
+  if (row.worth) {
+    await tx.worthAssessment.update({
+      where: { demandId: id },
+      data: { decision: "DROP", decidedById: actor.id },
+    });
+  }
+  await tx.demand.update({
+    where: { id },
+    data: {
+      status: "REJECTED",
+      decidedAt: new Date(),
+      rejectionReason: input.reason,
+    },
+  });
+  await writeAudit(tx, {
+    actorId: actor.id,
+    action: "demand.rejected",
+    subjectType: "Demand",
+    subjectId: id,
+    payload: { reason: input.reason },
+  });
+  await notifySubmitterOfOutcome(tx, {
+    demandId: id,
+    submittedById: row.submittedById,
+    ref: row.ref,
+    summary: `Your demand "${row.title}" was declined`,
+    guestStatus: guestStatusLabel("REJECTED", "DROP", input.reason),
+  });
 }

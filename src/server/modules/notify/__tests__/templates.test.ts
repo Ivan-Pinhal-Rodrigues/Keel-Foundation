@@ -15,6 +15,27 @@ test("renderTemplate throws for an unknown template", () => {
   expect(() => renderTemplate("nope", {})).toThrow(/unknown template/i);
 });
 
+test("demand_decided renders a guest-safe update carrying the ref and the plain-word status", () => {
+  const r = renderTemplate("demand_decided", {
+    ref: "DEM-0007",
+    status: "Approved",
+  });
+  expect(r.subject).toContain("DEM-0007");
+  expect(r.text).toContain("Approved");
+  expect(r.html).toContain("DEM-0007");
+  // no internal vocabulary leaks into the rendered copy
+  expect(`${r.subject} ${r.text} ${r.html}`).not.toMatch(
+    /triaging|worth_assessed|RFC\b|CAB\b|ChangeStatus/i,
+  );
+});
+
+test("demand_decided tolerates missing payload fields", () => {
+  const r = renderTemplate("demand_decided", {});
+  expect(r.subject).toBeTruthy();
+  expect(r.text).toBeTruthy();
+  expect(r.html).toBeTruthy();
+});
+
 test("guest_invite puts the client name in the copy and the url in the CTA href", () => {
   const r = renderTemplate("guest_invite", {
     clientName: "Northwind",

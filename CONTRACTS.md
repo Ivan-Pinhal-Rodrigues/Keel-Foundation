@@ -450,7 +450,9 @@ export function nodemailerTransport(): Transport;
 ### `src/server/modules/notify/templates/index.ts`
 
 The email template registry. A template is a pure function
-`payload -> { subject, text, html }`. Phase 0 ships only `guest_invite`.
+`payload -> { subject, text, html }`. Registered templates: `guest_invite`
+(Phase 0) and `demand_decided` (plan-01 Task 4 — payload `{ ref, status }`,
+sent to a guest submitter when their demand is decided or declined).
 
 ```ts
 export type Rendered = { subject: string; text: string; html: string };

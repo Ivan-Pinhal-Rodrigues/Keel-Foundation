@@ -315,6 +315,7 @@ model Demand {
   clientId        String? // set when a guest submitted it
   client          Client?      @relation(fields: [clientId], references: [id])
   affectedService String? // free text (v1)
+  rejectionReason String? // reason captured when a demand is declined (DROP decision or explicit /reject) — plan-01 Task 4
   decidedAt       DateTime?    @db.Timestamptz(3) // worth decision timestamp
   createdAt       DateTime     @default(now()) @db.Timestamptz(3)
   updatedAt       DateTime     @updatedAt @db.Timestamptz(3)

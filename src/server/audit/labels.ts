@@ -13,6 +13,9 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   "demand.value_scored": "Business value scored",
   "demand.effort_scored": "Effort scored",
   "demand.cost_of_delay_set": "Cost of delay set",
+  "demand.decided": "Decision recorded",
+  "demand.decide.override": "Single-approver override",
+  "demand.rejected": "Declined",
 };
 
 /** The phrase, or a humanised fallback (`"demand.value_scored" → "Demand value scored"`). */
@@ -32,7 +35,10 @@ export function guestAuditActionLabel(action: string): string | null {
   const GUEST_VISIBLE: Record<string, string> = {
     "comment.created": "Comment added",
     "demand.create": "Demand raised",
-    // Task 4 adds demand.decided / demand.rejected to the guest-visible set.
+    "demand.decided": "Decision recorded",
+    "demand.rejected": "Declined",
+    // demand.decide.override stays internal-only — a guest never sees that the
+    // decision needed a single-approver override.
   };
 
   return GUEST_VISIBLE[action] ?? null;

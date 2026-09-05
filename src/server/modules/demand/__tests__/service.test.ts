@@ -9,9 +9,15 @@ import {
   scoreValue,
   scoreEffort,
   setCostOfDelay,
+  decideDemand,
+  rejectDemand,
 } from "@/server/modules/demand/service";
 import type { Actor, Hat } from "@/server/policy/actor";
-import { ForbiddenError, NotFoundError } from "@/server/policy/errors";
+import {
+  ForbiddenError,
+  NotFoundError,
+  SegregationError,
+} from "@/server/policy/errors";
 
 const db = withTestDb();
 const ctx = <T>(fn: () => Promise<T>): Promise<T> =>
@@ -269,6 +275,17 @@ test("only a BUSINESS_APPROVER may score value; only a TECHNICAL_APPROVER may sc
     ),
   ).rejects.toBeInstanceOf(ForbiddenError);
 
+  // a TECHNICAL_APPROVER without the BUSINESS_APPROVER hat is also rejected
+  // (the mirror of the scoreEffort check below).
+  const techOnly = (await seedInternal(["TECHNICAL_APPROVER"])).actor;
+  await expect(
+    ctx(() =>
+      db().$transaction((tx) =>
+        scoreValue(techOnly, tx, id, { businessValue: "high" }),
+      ),
+    ),
+  ).rejects.toBeInstanceOf(ForbiddenError);
+
   await ctx(() =>
     db().$transaction((tx) =>
       scoreValue(biz, tx, id, { businessValue: "high", valueScore: 8 }),
@@ -356,4 +373,240 @@ test("value scored notifies TECHNICAL_APPROVER hat holders; effort scored notifi
   );
   notes = await db().notification.findMany({ where: { subjectId: id } });
   expect(notes.map((n) => n.userId)).toContain(biz.id);
+});
+
+// --- Task 4: worth decision, reject, single-approver override -------------
+
+async function seedAssessedDemand(opts?: {
+  /** An internal user who is also the submitter (the SoD case). Default: a
+   *  fresh guest submits, so the demand carries a clientId. */
+  internalSubmitterId?: string;
+  status?: "WORTH_ASSESSED" | "APPROVED";
+  decision?: "PURSUE" | "PARK" | null;
+}): Promise<{
+  id: string;
+  guestActor: Actor;
+  submitterId: string;
+  guestEmail: string;
+}> {
+  const { client, guest } = await seedClientAndGuest();
+  const submitterId = opts?.internalSubmitterId ?? guest.id;
+  const guestRow = await db().user.findUniqueOrThrow({
+    where: { id: guest.id },
+  });
+  const demand = await db().demand.create({
+    data: {
+      ref: `DEM-${rand()}`,
+      title: "T",
+      problem: "P",
+      source: "CLIENT",
+      status: opts?.status ?? "WORTH_ASSESSED",
+      submittedById: submitterId,
+      clientId: opts?.internalSubmitterId ? null : client.id,
+    },
+  });
+  await db().worthAssessment.create({
+    data: {
+      demandId: demand.id,
+      businessValue: "high",
+      valueScore: 8,
+      effort: "M",
+      costOfDelay: "compounding",
+      decision: opts?.decision ?? null,
+    },
+  });
+  return {
+    id: demand.id,
+    guestActor: { id: guest.id, kind: "GUEST", hats: [], clientId: client.id },
+    submitterId,
+    guestEmail: guestRow.email,
+  };
+}
+
+test("a non-submitter approver decides: WORTH_ASSESSED → APPROVED, decision + note recorded, demand.decided audited, submitter notified + emailed", async () => {
+  const { id, submitterId, guestEmail } = await seedAssessedDemand();
+  const biz = (await seedInternal(["BUSINESS_APPROVER"])).actor;
+
+  await ctx(() =>
+    db().$transaction((tx) =>
+      decideDemand(biz, tx, id, { decision: "PURSUE", note: "clear ROI" }),
+    ),
+  );
+
+  const d = await db().demand.findUniqueOrThrow({ where: { id } });
+  expect(d.status).toBe("APPROVED");
+  expect(d.decidedAt).not.toBeNull();
+  const w = await db().worthAssessment.findUniqueOrThrow({
+    where: { demandId: id },
+  });
+  expect(w.decision).toBe("PURSUE");
+  expect(w.decisionNote).toBe("clear ROI");
+  expect(w.decidedById).toBe(biz.id);
+  expect(w.isSingleApproverOverride).toBe(false);
+
+  expect(
+    await db().auditEvent.findMany({
+      where: { subjectId: id, action: "demand.decided" },
+    }),
+  ).toHaveLength(1);
+
+  const notes = await db().notification.findMany({ where: { subjectId: id } });
+  expect(notes.map((n) => n.userId)).toContain(submitterId);
+  const outbox = await db().emailOutbox.findMany({
+    where: { toEmail: guestEmail, template: "demand_decided" },
+  });
+  expect(outbox).toHaveLength(1);
+});
+
+test("the submitter deciding their own demand → SegregationError('demand.decide.override')", async () => {
+  const submitter = await seedInternal(["BUSINESS_APPROVER"]);
+  const { id } = await seedAssessedDemand({
+    internalSubmitterId: submitter.id,
+  });
+
+  await expect(
+    ctx(() =>
+      db().$transaction((tx) =>
+        decideDemand(submitter.actor, tx, id, { decision: "PURSUE" }),
+      ),
+    ),
+  ).rejects.toBeInstanceOf(SegregationError);
+  await expect(
+    ctx(() =>
+      db().$transaction((tx) =>
+        decideDemand(submitter.actor, tx, id, {
+          decision: "PURSUE",
+          overrideJustification: "too short",
+        }),
+      ),
+    ),
+  ).rejects.toMatchObject({ overrideAction: "demand.decide.override" });
+});
+
+test("the submitter with a >=20-char justification: recorded as an override, BOTH demand.decided and demand.decide.override audited", async () => {
+  const submitter = await seedInternal(["BUSINESS_APPROVER"]);
+  const { id } = await seedAssessedDemand({
+    internalSubmitterId: submitter.id,
+  });
+
+  await ctx(() =>
+    db().$transaction((tx) =>
+      decideDemand(submitter.actor, tx, id, {
+        decision: "PARK",
+        overrideJustification:
+          "sole approver available this week; CTO on leave",
+      }),
+    ),
+  );
+
+  const w = await db().worthAssessment.findUniqueOrThrow({
+    where: { demandId: id },
+  });
+  expect(w.isSingleApproverOverride).toBe(true);
+  expect(w.decision).toBe("PARK");
+  expect(w.overrideJustification).toBe(
+    "sole approver available this week; CTO on leave",
+  );
+  const actions = (
+    await db().auditEvent.findMany({ where: { subjectId: id } })
+  ).map((a) => a.action);
+  expect(actions).toEqual(
+    expect.arrayContaining(["demand.decided", "demand.decide.override"]),
+  );
+});
+
+test("DROP records the note as the rejection reason and lands REJECTED; explicit reject → REJECTED with the reason, demand.rejected audited, submitter notified", async () => {
+  const biz = (await seedInternal(["BUSINESS_APPROVER"])).actor;
+
+  const dropped = await seedAssessedDemand();
+  await ctx(() =>
+    db().$transaction((tx) =>
+      decideDemand(biz, tx, dropped.id, {
+        decision: "DROP",
+        note: "out of scope",
+      }),
+    ),
+  );
+  let d = await db().demand.findUniqueOrThrow({ where: { id: dropped.id } });
+  expect(d.status).toBe("REJECTED");
+  expect(d.rejectionReason).toBe("out of scope");
+
+  const rejected = await seedAssessedDemand();
+  await ctx(() =>
+    db().$transaction((tx) =>
+      rejectDemand(biz, tx, rejected.id, { reason: "duplicate request" }),
+    ),
+  );
+  d = await db().demand.findUniqueOrThrow({ where: { id: rejected.id } });
+  expect(d.status).toBe("REJECTED");
+  expect(d.rejectionReason).toBe("duplicate request");
+  const w = await db().worthAssessment.findUniqueOrThrow({
+    where: { demandId: rejected.id },
+  });
+  expect(w.decision).toBe("DROP");
+  expect(
+    await db().auditEvent.findFirst({
+      where: { subjectId: rejected.id, action: "demand.rejected" },
+    }),
+  ).toBeTruthy();
+  const notes = await db().notification.findMany({
+    where: { subjectId: rejected.id },
+  });
+  expect(notes.map((n) => n.userId)).toContain(rejected.submitterId);
+});
+
+test("park then re-decide: APPROVED(PARK) → decideDemand(PURSUE) → APPROVED(PURSUE), one more demand.decided audit", async () => {
+  const { id } = await seedAssessedDemand({
+    status: "APPROVED",
+    decision: "PARK",
+  });
+  const biz = (await seedInternal(["BUSINESS_APPROVER"])).actor;
+
+  await ctx(() =>
+    db().$transaction((tx) =>
+      decideDemand(biz, tx, id, { decision: "PURSUE" }),
+    ),
+  );
+
+  const d = await db().demand.findUniqueOrThrow({ where: { id } });
+  expect(d.status).toBe("APPROVED");
+  const w = await db().worthAssessment.findUniqueOrThrow({
+    where: { demandId: id },
+  });
+  expect(w.decision).toBe("PURSUE");
+  expect(
+    await db().auditEvent.findMany({
+      where: { subjectId: id, action: "demand.decided" },
+    }),
+  ).toHaveLength(1);
+});
+
+test("a guest cannot decide or reject", async () => {
+  const { id, guestActor } = await seedAssessedDemand();
+  await expect(
+    ctx(() =>
+      db().$transaction((tx) =>
+        decideDemand(guestActor, tx, id, { decision: "PURSUE" }),
+      ),
+    ),
+  ).rejects.toBeInstanceOf(ForbiddenError);
+  await expect(
+    ctx(() =>
+      db().$transaction((tx) =>
+        rejectDemand(guestActor, tx, id, { reason: "no" }),
+      ),
+    ),
+  ).rejects.toBeInstanceOf(ForbiddenError);
+});
+
+test("decide / reject on a demand that is not awaiting a decision → ForbiddenError", async () => {
+  const biz = (await seedInternal(["BUSINESS_APPROVER"])).actor;
+  const { id } = await seedDemand("TRIAGING", { businessValue: "v" });
+  await expect(
+    ctx(() =>
+      db().$transaction((tx) =>
+        decideDemand(biz, tx, id, { decision: "PURSUE" }),
+      ),
+    ),
+  ).rejects.toBeInstanceOf(ForbiddenError);
 });

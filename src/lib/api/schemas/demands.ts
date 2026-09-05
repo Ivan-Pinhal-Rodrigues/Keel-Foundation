@@ -60,3 +60,22 @@ export const costOfDelayBody = z.object({
   costOfDelay: z.string().trim().min(1).max(2000),
 });
 export type CostOfDelayBody = z.infer<typeof costOfDelayBody>;
+
+/**
+ * `POST /api/demands/:id/decision` body (ruling 2 / ruling 4). `PURSUE` / `PARK`
+ * approve, `DROP` rejects. `overrideJustification` — a string of at least 20
+ * trimmed characters — is the single-approver escape hatch when the decider is
+ * the submitter.
+ */
+export const decisionBody = z.object({
+  decision: z.enum(["PURSUE", "PARK", "DROP"]),
+  note: z.string().trim().max(2000).optional(),
+  overrideJustification: z.string().trim().min(20).max(2000).optional(),
+});
+export type DecisionBody = z.infer<typeof decisionBody>;
+
+/** `POST /api/demands/:id/reject` body. */
+export const rejectBody = z.object({
+  reason: z.string().trim().min(1).max(2000),
+});
+export type RejectBody = z.infer<typeof rejectBody>;

@@ -38,9 +38,24 @@ test("the Task 3 demand actions carry an explicit label", () => {
     expect(AUDIT_ACTION_LABELS[a], a).toBeTruthy();
 });
 
+test("the Task 4 demand actions carry an explicit label", () => {
+  for (const a of [
+    "demand.decided",
+    "demand.decide.override",
+    "demand.rejected",
+  ])
+    expect(AUDIT_ACTION_LABELS[a], a).toBeTruthy();
+});
+
 test("guestAuditActionLabel hides internal-only actions", () => {
   expect(guestAuditActionLabel("comment.created")).toBeTruthy();
   expect(guestAuditActionLabel("demand.create")).toBeTruthy();
   expect(guestAuditActionLabel("session.revoked")).toBeNull();
   expect(guestAuditActionLabel("demand.triage_started")).toBeNull();
+});
+
+test("guestAuditActionLabel exposes the decision and the rejection but not the override", () => {
+  expect(guestAuditActionLabel("demand.decided")).toBeTruthy();
+  expect(guestAuditActionLabel("demand.rejected")).toBeTruthy();
+  expect(guestAuditActionLabel("demand.decide.override")).toBeNull();
 });
