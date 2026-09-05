@@ -18,8 +18,9 @@
 - **Every `api/**` route handler is wrapped in `withRequest`** (`@/lib/api/with-request`). Never resolve the session or actor by hand in a route.
 - **Every domain write runs inside `runInTransaction`** (`@/server/db/tx`) and calls `writeAudit` for its state change in the same `tx`. Notifications go through `emitNotification` in the same `tx`.
 - **Request bodies are parsed with a Zod schema** from `src/lib/api/schemas/<module>.ts`: `SCHEMA.parse(await req.json().catch(() => null))`. A parse failure throws `ZodError` → `mapError` → 400. Zod 4 API: `z.email()`, `z.iso.datetime()`, `z.enum([...])`.
+- **Every `"use client"` component that talks to a route handler uses `apiFetch<T>`** from `@/lib/api/client` (plan-1a Task 7) — never a bare `fetch`, never `as any` on the response. `apiFetch` throws `ApiError` on a non-2xx (with the parsed body attached), returns `undefined` for a 204 / empty body, and takes an optional `schema` to parse + type the 2xx body (a schema mismatch throws `ZodError`, not `ApiError`). Applies to `DemandRegister`, `DemandDrawer`, `PrioritisationBoard`, `OverrideDialog`, `PortalDemandList`, `PortalDemandDetail`, and the already-shipped `LoginForm`.
 - **TDD, RED first.** Each task: write the failing test, run it, see it fail for the right reason, implement the minimum, see it pass, commit. Never write implementation before its test.
-- **Tests hit the disposable-schema harness:** `import { withTestDb } from "@/test/db"` → `const db = withTestDb();`. Open transactions in tests with `db().$transaction(...)`, **not** `runInTransaction` (that binds to the public-schema singleton, invisible to the test schema — see `src/server/modules/notify/__tests__/emit.test.ts`).
+- **Tests hit the disposable-database harness:** `import { withTestDb } from "@/test/db"` → `const db = withTestDb();`. Each test file gets its own `CREATE DATABASE … TEMPLATE` clone (plan-1a Task 11 — one migrate per suite run, then a near-instant file copy per file). Open transactions in tests with `db().$transaction(...)`, **not** `runInTransaction` (that binds to the `@/server/db/client` singleton, invisible to the test database — see `src/server/modules/notify/__tests__/emit.test.ts`). Route-handler tests use `withRouteTestDb()` from `@/test/route-db` (see Task 2).
 - **Caveman mode is for chat only.** Code, comments, commit messages, and this plan's prose stay in normal English. Commit messages end with `Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>`.
 - **`pnpm lint && pnpm typecheck && pnpm test && pnpm build` must be green before every commit.** `pnpm lint` includes `prettier --check .` — run `pnpm exec prettier --write` on new files first.
 - **Enum casing:** the Prisma enums are `SCREAMING_SNAKE` (`DemandStatus.SUBMITTED`, `DemandSource.CLIENT`, `WorthDecision.PURSUE`, `Effort.S`). Spec 01 §3 writes them lowercase for prose; the code uses the enum values.
@@ -45,7 +46,7 @@ These resolve where the spec was written before Phase 0 froze. Treat them as par
 
 - `src/lib/api/schemas/demands.ts` — every demand request body as a Zod schema + `z.infer` type. One responsibility: the wire contract.
 - `src/server/modules/demand/service.ts` — the demand use cases: `createDemand`, `listDemands`, `getDemandForActor`, `startTriage`, `scoreValue`, `scoreEffort`, `decideDemand`, `rejectDemand`. Each takes `(actor, tx, input)` (or `(actor, args)` for reads that open their own client). All authz + audit + notify live here.
-- `src/server/modules/demand/serialize.ts` — `serializeDemand(actor, row)` + `INTERNAL_ONLY_KEYS` + the guest status map (spec §5). Pure.
+- `src/server/modules/demand/serialize.ts` — `serializeDemand(actor, row)` (via `serializePick`) + `DEMAND_GUEST_KEYS` (the guest allowlist) + the guest status map (spec §5). Pure.
 - `src/server/modules/demand/state.ts` — `assertTransition(from, to)` and the guard predicates (`canEnterWorthAssessed`, etc.). Pure, no Prisma. The one place the state machine lives.
 - `src/app/api/demands/route.ts` — `POST` (create), `GET` (list).
 - `src/app/api/demands/[id]/route.ts` — `GET` (one).
@@ -61,9 +62,9 @@ These resolve where the spec was written before Phase 0 froze. Treat them as par
 - `src/app/login/LoginForm.tsx` — `"use client"`; email + password, posts to `/api/auth/login`, on 200 `router.push(next)`, on 401 shows an inline error.
 - `src/app/login/login.module.css`.
 - `src/app/page.tsx` — replace the scaffold with `redirect("/demands")`.
-- `src/app/(internal)/layout.tsx` — server component; `getActorOrNull()` → if `null` or `kind !== "INTERNAL"` `redirect("/login")` (or `/portal` for a guest); renders `<AppShell nav={…} user={…}>` with a logout control.
-- `src/app/(internal)/AppShellChrome.tsx` — `"use client"`; the nav array + the logout button (posts `/api/auth/logout` then `router.push("/login")`), wraps `{children}`. Keeps `(internal)/layout.tsx` a server component.
-- `src/app/portal/layout.tsx` — server component; guest guard (`getActorOrNull()` → non-guest `redirect("/login")`); minimal chrome (product mark + logout). plan-04 expands this.
+- `src/app/(internal)/layout.tsx` — server component; `getCurrentActor()` → if `null` or `kind !== "INTERNAL"` `redirect("/login")` (or `/portal` for a guest); a second `whoami()` for the display fields; renders `<AppShellChrome user={…}>` (which mounts `<AppShell>`).
+- `src/app/(internal)/AppShellChrome.tsx` — `"use client"`; the nav array + `<LogoutButton>`, computes `currentKey` from `usePathname()`, mounts `<AppShell>`. Keeps `(internal)/layout.tsx` a server component.
+- `src/app/portal/(guest)/layout.tsx` — server component; guest guard (`getCurrentActor()` → non-guest `redirect("/demands")`, no session `redirect("/login")`); minimal chrome (product mark + logout). A **route group** (`(guest)`), not a literal `portal/layout.tsx`: a literal-path layout would also wrap the public `portal/invite/[token]` redemption page and force an unauthenticated invitee through the guard, breaking onboarding. plan-04 expands this.
 
 **UI — register, drawer, board**
 
@@ -87,14 +88,17 @@ These resolve where the spec was written before Phase 0 froze. Treat them as par
 
 ## Task 1: App shell & auth entry
 
+> **Shipped — commits `5644476..b5110a5`.** Pulled forward and built early (interleaved with plan-1a hardening) per a controller ruling, so the app had a first visible page. This section is now a **historical record** of what was built, corrected to match reality — do not re-implement. Key deltas from the original plan: `getCurrentActor()` / `whoami()` (`@/server/auth/current`) replaced `getActorOrNull()` (which returns `null` in a Server Component — see plan-1a Task 1); `sanitizeNext()` (`src/app/login/sanitize-next.ts`) replaced the inline `next=` string check (which had an open-redirect hole); the portal layout is a `(guest)` route group; `whoami()` was **not** created as a new `src/server/auth/whoami.ts` (it lives in `current.ts`).
+
 **Files:**
-- Create: `src/app/login/page.tsx`, `src/app/login/LoginForm.tsx`, `src/app/login/login.module.css`, `src/app/(internal)/layout.tsx`, `src/app/(internal)/AppShellChrome.tsx`, `src/app/portal/layout.tsx`
+- Create: `src/app/login/page.tsx`, `src/app/login/LoginForm.tsx`, `src/app/login/login.module.css`, `src/app/login/sanitize-next.ts`, `src/app/(internal)/layout.tsx`, `src/app/(internal)/AppShellChrome.tsx`, `src/app/(internal)/nav.ts`, `src/app/portal/(guest)/layout.tsx`, `src/components/LogoutButton/`
 - Modify: `src/app/page.tsx`
-- Test: `src/app/login/__tests__/login.test.tsx`
+- Test: `src/app/login/__tests__/login.test.tsx`, `src/app/login/__tests__/sanitize-next.test.ts`, `src/app/(internal)/__tests__/nav.test.ts`
 
 **Interfaces:**
-- Consumes: `getActorOrNull` (`@/server/auth/actor`), `AppShell` + `NavItem` (`@/components/AppShell`), `SESSION_COOKIE` (not needed directly — middleware already gates). `POST /api/auth/login` and `POST /api/auth/logout` already exist (Phase 0).
-- Produces: the `/login` page, the `(internal)` route group with `<AppShell>` chrome, the `portal` layout. Later demand-UI tasks put pages under `src/app/(internal)/demands/`.
+- Consumes: `getCurrentActor` / `whoami` + the `Me` type (`@/server/auth/current`), `AppShell` + `NavItem` (`@/components/AppShell`). `POST /api/auth/login` and `POST /api/auth/logout` already exist (Phase 0).
+- **Known gap:** `LoginForm` shipped with a bare `fetch` (it predates plan-1a Task 7's `apiFetch`). A small follow-up should port it to `apiFetch` + catch `ApiError` (`status === 401` → the wrong-credentials message) — behaviour-preserving, ~10 lines, not blocking.
+- Produces: the `/login` page, the `(internal)` route group with `<AppShell>` chrome, the `portal/(guest)` route group. Later demand-UI tasks put pages under `src/app/(internal)/demands/`.
 
 - [ ] **Step 1: Write the failing test** — `src/app/login/__tests__/login.test.tsx`
 
@@ -143,27 +147,20 @@ test("shows an inline error on 401 and does not navigate", async () => {
 
 - [ ] **Step 2: Run it, verify it fails** — `pnpm test src/app/login` → FAIL (`Cannot find module '@/app/login/LoginForm'`).
 
-- [ ] **Step 3: Implement `LoginForm`** — controlled email/password inputs with `<label htmlFor>`; on submit `e.preventDefault()`, `fetch("/api/auth/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email, password }) })`; `res.ok` → `router.push(next || "/demands")`; `res.status === 401` → set an error string rendered in a `<p role="alert">The email or password is incorrect.</p>`; disable the button while the request is in flight. Style via `login.module.css` using the tokens (`--surface`, `--border`, `--accent`).
+- [x] **Step 3: `LoginForm`** — controlled email/password inputs with `<label htmlFor>`; on submit `e.preventDefault()`, an empty-field guard, then `fetch("/api/auth/login", …)` (bare `fetch` — the `apiFetch` follow-up noted above); `res.ok` → `router.push(next || "/demands")`; `res.status === 401` → `"The email or password is incorrect."` in a `<p role="alert">`; button disabled while in flight. Styled via `login.module.css` tokens.
 
-- [ ] **Step 4: Build `login/page.tsx`** — `async` server component: `const actor = await getActorOrNull(); if (actor) redirect(actor.kind === "INTERNAL" ? "/demands" : "/portal");`. Read `searchParams.next` (a string; default `"/demands"`; reject any value not starting with `/` to avoid open redirect). Render a centred card with the product mark and `<LoginForm next={next} />`.
+- [x] **Step 4: `login/page.tsx`** — `async` server component: `const actor = await getCurrentActor(); if (actor) redirect(actor.kind === "INTERNAL" ? "/demands" : "/portal");` (with a `// TODO(plan-06)` on the `/demands` target — becomes `/overview` once the dashboard ships). `next` is run through `sanitizeNext()` (`src/app/login/sanitize-next.ts`): `new URL(candidate, base)` + same-origin check → `${pathname}${search}${hash}`, else `/demands`. **Not** a bare `startsWith("/")` check — that let `?next=/%09//evil.com` through (control char stripped later by the router → external redirect). Renders a centred card + `<LoginForm next={next} />`.
 
-- [ ] **Step 5: Build `(internal)/layout.tsx` + `AppShellChrome`** — layout is `async`: `const actor = await getActorOrNull(); if (!actor) redirect("/login"); if (actor.kind !== "INTERNAL") redirect("/portal");` then `<AppShellChrome user={{ name: actor.displayName ?? actor.id, sub: hatSummary(actor) }}>{children}</AppShellChrome>`. `AppShellChrome` (`"use client"`) holds `const nav: NavItem[] = [{ key: "demands", label: "Demand", href: "/demands", icon: <DemandGlyph/> }]` (incidents/changes/etc. appended by later plans — leave a comment), computes `currentKey` from `usePathname()`, renders `<AppShell nav={nav} currentKey={currentKey} user={user} topbar={<LogoutButton/>}>{children}</AppShell>`. `LogoutButton`: `await fetch("/api/auth/logout", { method: "POST" }); router.push("/login")`.
-  - `actor` has no `displayName` in the `Actor` type — add a `displayName` field? **No.** `Actor` is frozen. The layout does a `loadActor`-adjacent read: use `getActorOrNull()` for the guard, then `prisma.user.findUnique({ where: { id: actor.id }, select: { displayName: true } })` via a tiny server helper `src/server/modules/demand/../` — actually simpler: add `src/server/auth/whoami.ts` `export async function whoami(): Promise<{ id; displayName; kind; hats } | null>` that wraps `getActorOrNull` + one `user.findUnique`. Layout uses `whoami()`. (This is a legitimate new leaf, not a contract change.)
+- [x] **Step 5: `(internal)/layout.tsx` + `AppShellChrome`** — layout is `async`: `const actor = await getCurrentActor(); if (!actor) redirect("/login"); if (actor.kind !== "INTERNAL") redirect("/portal");` then `const me = await whoami(); if (!me) redirect("/login");` (the session can die between the two reads — `whoami()` and `getCurrentActor()` share one `React.cache`d session resolution, so this is not a second DB hit). `<AppShellChrome user={{ name: me.displayName, sub: hatSummary(me) }}>{children}</AppShellChrome>`. `hatSummary(me: Me)` is a local pure helper joining `me.hats` labels with `" · "` (or `"—"`). `AppShellChrome` (`"use client"`) holds the `NavItem[]` (just Demand for now — later plans append), `navKeyFor(pathname, nav)` from `src/app/(internal)/nav.ts` (a pure, unit-tested prefix match), mounts `<AppShell … topbar={<LogoutButton/>}>`. `LogoutButton` (`src/components/LogoutButton/`, `"use client"`): posts `/api/auth/logout` then `router.push("/login")`.
+  - `whoami()` was **not** created as a new `src/server/auth/whoami.ts` — it already exists in `@/server/auth/current` (plan-1a Task 1), returning `Me = { id, kind, hats, clientId, displayName, email }`, reading the cookie via `next/headers`, wrapped in `React.cache`.
 
-- [ ] **Step 6: `src/app/page.tsx`** → `import { redirect } from "next/navigation"; export default function Root() { redirect("/demands"); }` (middleware sends an unauthed hit to `/login` first; an authed internal user lands on `/demands`; a guest is redirected by `(internal)/layout` to `/portal`).
+- [x] **Step 6: `src/app/page.tsx`** → `redirect("/demands")` with a `// TODO(plan-06)` marker (middleware bounces an unauthed hit to `/login`; a guest is bounced to `/portal` by `(internal)/layout`).
 
-- [ ] **Step 7: `portal/layout.tsx`** — `async`; `const actor = await getActorOrNull(); if (!actor) redirect("/login"); if (actor.kind !== "GUEST") redirect("/demands");` renders a minimal `<div>` chrome with the product mark and a logout control (reuse a shared `LogoutButton` — extract it to `src/components/LogoutButton/` if it helps; a `"use client"` leaf). plan-04 replaces this shell.
+- [x] **Step 7: `portal/(guest)/layout.tsx`** — a **route group**, not a literal `portal/layout.tsx` (so the public `portal/invite/[token]` page is not wrapped). `async`; `getCurrentActor()` guard (no session → `/login`, non-guest → `/demands`); minimal chrome (product mark + `<LogoutButton>`). A `portal/(guest)/page.tsx` placeholder exists so `/portal` resolves post-redeem; plan-04 replaces the shell.
 
-- [ ] **Step 8: Run the tests, verify they pass** — `pnpm test src/app/login` → PASS. Full gate green.
+- [x] **Step 8: Tests** — `login.test.tsx` (form behaviour), `sanitize-next.test.ts` (the open-redirect cases), `nav.test.ts` (`navKeyFor` prefix match). Full gate green at `b5110a5`.
 
-- [ ] **Step 9: Commit**
-
-```bash
-git add src/app/login/ "src/app/(internal)/" src/app/portal/layout.tsx src/app/page.tsx src/server/auth/whoami.ts src/components/LogoutButton/
-git commit -m "feat: login page, internal AppShell layout, portal shell
-
-Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
-```
+- [x] **Step 9: Committed** — `5644476..b5110a5`: `src/app/login/`, `src/app/(internal)/`, `src/app/portal/(guest)/`, `src/app/page.tsx`, `src/components/LogoutButton/`. (No `src/server/auth/whoami.ts` — see Step 5.) One fix round closed a `next=` open-redirect (the `sanitize-next.ts` above).
 
 ---
 
@@ -174,11 +171,14 @@ Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 - Test: `src/server/modules/demand/__tests__/service.test.ts`, `src/server/modules/demand/__tests__/serialize.test.ts`, `src/app/api/demands/__tests__/demands.route.test.ts`
 
 **Interfaces:**
-- Consumes: `authorize` (`@/server/policy/authorize`), `scopeToClient` / `assertVisibleToGuest` (`@/server/policy/scope`), `serializeFor` / `assertNoInternalKeys` (`@/server/policy/serialize`), `nextRef` (`@/server/ids/ref`), `writeAudit` (`@/server/audit/write`), `emitNotification` (`@/server/modules/notify/emit`), `PrismaTransaction` / `runInTransaction` (`@/server/db/tx`), `prisma` (`@/server/db/client`), `Actor` / `isInternal` (`@/server/policy/actor`), `withRequest` / `getActor` (Phase 0).
+- Consumes: `authorize` (`@/server/policy/authorize`), `scopeToClient` / `assertVisibleToGuest` (`@/server/policy/scope`), **`serializePick`** (`@/server/policy/serialize` — the allowlist guest serializer from plan-1a Task 3; **not** `serializeFor`, which is now marked internal-shaping-only because a denylist leaks a new column by omission), `nextRef` (`@/server/ids/ref`), `writeAudit` (`@/server/audit/write`), `emitNotification` (`@/server/modules/notify/emit`), `PrismaTransaction` / `runInTransaction` (`@/server/db/tx`), `prisma` (`@/server/db/client`), `Actor` / `isInternal` (`@/server/policy/actor`), `withRequest` / `getActor` (Phase 0).
 - Produces:
   ```ts
   // src/server/modules/demand/serialize.ts
-  export const DEMAND_INTERNAL_ONLY_KEYS: readonly string[]; // ["worth", "affectedServiceInternalNote", ...]
+  export const DEMAND_GUEST_KEYS: readonly (keyof DemandWithWorth)[];
+  //   ["id", "ref", "title", "problem", "source", "affectedService", "createdAt"]
+  //   an ALLOWLIST — a guest sees only these plus the guestTransform output; a new
+  //   column added to the row later stays hidden until deliberately added here.
   export function serializeDemand(actor: Actor, row: DemandWithWorth): Record<string, unknown>;
   export function guestStatusLabel(status: $Enums.DemandStatus, decision: $Enums.WorthDecision | null, rejectionReason: string | null): string;
 
@@ -196,8 +196,7 @@ Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 
 ```ts
 import { expect, test } from "vitest";
-import { serializeDemand, DEMAND_INTERNAL_ONLY_KEYS, guestStatusLabel } from "@/server/modules/demand/serialize";
-import { assertNoInternalKeys } from "@/server/policy/serialize";
+import { serializeDemand, DEMAND_GUEST_KEYS, guestStatusLabel } from "@/server/modules/demand/serialize";
 
 const internal = { id: "u1", kind: "INTERNAL", hats: [], clientId: null } as const;
 const guest = { id: "g1", kind: "GUEST", hats: [], clientId: "c1" } as const;
@@ -216,10 +215,12 @@ test("internal reader sees the worth assessment", () => {
   expect(out.status).toBe("TRIAGING");
 });
 
-test("guest reader gets none of the internal-only keys and a plain-word status", () => {
+test("guest reader gets exactly the allowlisted keys plus the guest transform, and a plain-word status", () => {
   const out = serializeDemand(guest, row);
-  assertNoInternalKeys(out, DEMAND_INTERNAL_ONLY_KEYS);
-  expect(out).not.toHaveProperty("worth");
+  expect(Object.keys(out).sort()).toEqual(
+    [...DEMAND_GUEST_KEYS, "status", "clientName"].sort(),
+  );
+  expect(out.worth).toBeUndefined(); // never in guestKeys → cannot leak
   expect(out.status).toBe("In review");
 });
 
@@ -303,11 +304,19 @@ test("an internal user creating a demand: no client, source INTERNAL allowed, no
 
 ```ts
 /** @vitest-environment node */
-import { expect, test, vi, beforeEach } from "vitest";
-// Mock the actor + service seams; assert status + body shape only.
-// (Follow the pattern in src/app/api/guest-invites/__tests__/create.route.test.ts.)
+import { afterAll, expect, test, vi } from "vitest";
+import { GET, POST } from "@/app/api/demands/route";
+// withRouteTestDb() (@/test/route-db, plan-1a Task 11) packages the whole
+// mock + lifecycle dance into two statements — the up-to-date example is
+// src/app/api/guest-invites/__tests__/create.route.test.ts, ported to it.
+vi.mock("@/server/db/client", async () =>
+  (await import("@/test/route-db")).routeDbClientMock(),
+);
+const { db, asActor } = withRouteTestDb();
+// asActor(user) → { cookie, headers, token, actor, run }; spread `headers`
+// into the Request init, or use `run(() => service(...))` for a direct call.
 ```
-Cases: no session → 401; bad body (`source` not an enum member) → 400 with `{ error: "invalid" }`; a valid guest create → 201 `{ id, ref }`; `GET` list returns an array of serialized rows (guest rows carry no `worth`).
+Cases: no session → 401; bad body (`source` not an enum member) → 400 with `{ error: "invalid" }`; a valid guest create → 201 `{ id, ref }`; `GET` list returns an array of serialized rows (guest rows carry no `worth`). Task 3 and Task 4's route tests use the same `withRouteTestDb()` seam.
 
 - [ ] **Step 2: Run them, verify they fail** — `pnpm test src/server/modules/demand src/app/api/demands` → FAIL (modules missing).
 
@@ -315,11 +324,11 @@ Cases: no session → 401; bad body (`source` not an enum member) → 400 with `
 
 ```ts
 import type { $Enums } from "@prisma/client";
-import { serializeFor } from "@/server/policy/serialize";
-import { isInternal, type Actor } from "@/server/policy/actor";
+import { serializePick } from "@/server/policy/serialize";
+import { type Actor } from "@/server/policy/actor";
 
-export const DEMAND_INTERNAL_ONLY_KEYS = [
-  "worth", "affectedServiceInternalNote", "submittedById", "decidedAt",
+export const DEMAND_GUEST_KEYS = [
+  "id", "ref", "title", "problem", "source", "affectedService", "createdAt",
 ] as const;
 
 export function guestStatusLabel(
@@ -344,8 +353,8 @@ export function guestStatusLabel(
 type DemandWithWorth = { /* Demand + worth: WorthAssessment | null + client: { name: string } | null */ [k: string]: unknown };
 
 export function serializeDemand(actor: Actor, row: DemandWithWorth): Record<string, unknown> {
-  const base = serializeFor(actor, row as Record<string, unknown>, {
-    internalOnlyKeys: DEMAND_INTERNAL_ONLY_KEYS,
+  return serializePick(actor, row as Record<string, unknown>, {
+    guestKeys: DEMAND_GUEST_KEYS,
     guestTransform: (r) => ({
       status: guestStatusLabel(
         r.status as $Enums.DemandStatus,
@@ -355,10 +364,10 @@ export function serializeDemand(actor: Actor, row: DemandWithWorth): Record<stri
       clientName: (r.client as { name: string } | null)?.name ?? null,
     }),
   });
-  return base;
 }
 ```
-(There is no `rejectionReason` column on `Demand` in the schema — Task 4 adds it via a migration, or reuses `WorthAssessment.decisionNote` when `decision = DROP`. **Ruling:** add `Demand.rejectionReason String?` in Task 4's migration; `serializeDemand` reads it. Until Task 4, `serializeDemand` treats it as absent.)
+An internal reader gets the full row (`serializePick` passes it through — there is no `internalOmit` here). A guest gets only `DEMAND_GUEST_KEYS` plus the `guestTransform` output: `worth`, `submittedById`, `decidedAt`, and any internal column added to the row later are hidden **by omission from the allowlist**, not by an active strip — so a new column cannot leak, and there is no `assertNoInternalKeys` to keep in sync.
+(There is no `rejectionReason` column on `Demand` in the schema — Task 4 adds it via a migration, or reuses `WorthAssessment.decisionNote` when `decision = DROP`. **Ruling:** add `Demand.rejectionReason String?` in Task 4's migration; `serializeDemand`'s `guestTransform` reads it. Until Task 4, it reads as `undefined`.)
 
 - [ ] **Step 4: Implement `service.ts` — create / list / get**
 
@@ -705,7 +714,7 @@ test("the status filter chip narrows the visible rows", async () => {
 - [ ] **Step 3: Build `page.tsx`** — `async` server component. `const sp = await searchParams;` parse `status/source/mine/view` with `listDemandsQuery`. Fetch server-side: call `listDemands(await getActor(), filters)` directly (a server component may import the service — it is not `api/**`; the Prisma boundary allows `src/server/**` imports from a server component as long as it does not import `@prisma/client` itself). If `view === "board"` render `<PrioritisationBoard rows={rows} />` (Task 7), else `<DemandRegister initialRows={rows} initialFilters={filters} />`.
   - **Ruling:** server components call services directly (no self-`fetch`). Client components call the route handlers.
 
-- [ ] **Step 4: Build `DemandRegister`** — `"use client"`. State: `filters`, derived `visibleRows` (client-side filter over `initialRows` for snappy chips; a chip also pushes `router.push("/demands?status=…")` so a reload is stable). `DataTable` columns: `ref` (mono), `title`, `source` (a `Pill tone="info"`), `client` (`clientName ?? "—"` with an internal "raised by a client" marker), `status` (`Pill` — tone by status: APPROVED→ok, REJECTED→crit, else info), a value/effort mini-cell (`{worth?.effort ?? "—"} · {"●".repeat(scoreDots)}`), `age` (relative). `onRowClick` → set `openId` → render `<DemandDrawer id={openId} onClose={…} />` (Task 6; until then, a no-op console log + a `// TODO(task-6)` comment). Filter chips: a row of `<button>`s per status + a "raised by a client" toggle; sort `<select>` newest / oldest / "cost of delay" (cost-of-delay sort needs the field on the row — include `worth.costOfDelay` presence as a boolean tiebreak for v1, note the limitation).
+- [ ] **Step 4: Build `DemandRegister`** — `"use client"`. State: `filters`, derived `visibleRows` (client-side filter over `initialRows` for snappy chips; a chip also pushes `router.push("/demands?status=…")` so a reload is stable). `DataTable` columns: `ref` (mono — **plain text, not wrapped in an element**, so the activator button gets a per-row name), `title`, `source` (a `Pill tone="info"`), `client` (`clientName ?? "—"` with an internal "raised by a client" marker), `status` (`Pill` — tone by status: APPROVED→ok, REJECTED→crit, else info), a value/effort mini-cell (`{worth?.effort ?? "—"} · {"●".repeat(scoreDots)}`), `age` (relative). Pass `onRowClick={(row) => setOpenId(row.id)}` and `label="Demand register"` per the amended `DataTableProps` contract (plan-1a Task 9): `onRowClick` is now optional, and when set, `DataTable` renders a visually-hidden activator `<button>` in the first cell (keyboard) plus a guarded `<tr onClick>` (mouse) — no `<tr role="button">`, no manual `stopPropagation`. `label` seeds the activator's accessible name (`"Open Demand register: DEM-0001"`). Then `{openId && <DemandDrawer id={openId} open onClose={() => setOpenId(null)} />}` (Task 6; until then a `// TODO(task-6)` no-op). Filter chips: a row of `<button>`s per status + a "raised by a client" toggle; sort `<select>` newest / oldest / "cost of delay" (cost-of-delay sort needs the field on the row — include `worth.costOfDelay` presence as a boolean tiebreak for v1, note the limitation).
 
 - [ ] **Step 5: Run tests + full gate. Manually: `pnpm dev`, sign in as `admin@keel.local`, open `/demands` — the seeded demand(s) render.**
 
@@ -731,7 +740,7 @@ Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 - Consumes: `Drawer` (`@/components/Drawer`), `Panel`, `Timeline`, `LifecyclePips`, the `GET /api/demands/:id` route, a new `GET/POST /api/demands/:id/comments` route wrapping `listComments` / `addComment` (`@/server/modules/comment`). Audit events for the Timeline come from `GET /api/demands/:id` — extend `getDemandForActor` to include a recent-activity list.
 - Produces: the read-only drawer. Task 7 adds the write actions.
 
-- [ ] **Step 1: Extend `getDemandForActor`** to also return `activity`: `prisma.auditEvent.findMany({ where: { subjectType: "Demand", subjectId: id }, orderBy: { at: "asc" }, select: { action: true, at: true, actorId: true } })` mapped to `{ time, text }` for the `Timeline` (a small `auditToTimeline(action)` label map — `"demand.create" → "Demand raised"`, `"demand.value_scored" → "Business value scored"`, …). Guests get a filtered subset (no internal-only events — `demand.value_scored` etc. are hidden; only `demand.create`, `demand.decided` (as "Decision recorded"), `demand.rejected`). Add to `serializeDemand`'s `guestTransform` or a dedicated `activity` key stripped by `DEMAND_INTERNAL_ONLY_KEYS` for the raw and re-added filtered.
+- [ ] **Step 1: Extend `getDemandForActor`** to also return `activity`: `prisma.auditEvent.findMany({ where: { subjectType: "Demand", subjectId: id }, orderBy: { at: "asc" }, select: { action: true, at: true, actorId: true } })` mapped to `{ time, text }` for the `Timeline`. Use `auditActionLabel(action)` from `@/server/audit/labels` (plan-1a Task 13's shared registry) for the internal Timeline text — **not** a bespoke per-module map. For a guest, use `guestAuditActionLabel(action)` and drop any row where it returns `null` (internal-only actions self-hide — no allowlist needed on this end). The demand tasks must **append** their actions to `AUDIT_ACTION_LABELS` in `labels.ts` as each is introduced — `demand.create`, `demand.triage_started`, `demand.value_scored`, `demand.effort_scored`, `demand.cost_of_delay_set`, `demand.decided`, `demand.decide.override`, `demand.rejected` — and add `demand.create` ("Demand raised") + `demand.rejected` ("Declined") + `demand.decided` ("Decision recorded") to `guestAuditActionLabel`'s guest-visible set. The `activity` array is built by `getDemandForActor` after the per-actor `serializeDemand` (it is not a row column, so it never goes through the allowlist — the guest filtering is the `guestAuditActionLabel` null-drop above).
 
 - [ ] **Step 2: Write the failing tests**
 
@@ -745,25 +754,28 @@ test("posting a comment calls POST .../comments and prepends it", async () => { 
 ```
 
 - [ ] **Step 3: Build the comments route** — `src/app/api/demands/[id]/comments/route.ts`:
+`addComment` / `listComments` (`@/server/modules/comment`) take one `CommentSubject` now (plan-1a Task 4) — `{ type: "Demand" | "Incident"; id; clientId: string | null }` — and call `requireOwnClientOr404(actor, subject.clientId)` **internally**, so the route no longer needs its own ownership check for comments (the `authorize(actor, "comment.create", …)` action check stays with the route). The route needs the demand's real `clientId` for the subject — the guest-serialized shape omits it, so the demand service exposes a tiny `demandClientId(id: string): Promise<string | null>` (a `select: { clientId: true }` read; keeps the Prisma boundary — the route imports the service, never `@/server/db/client`):
 ```ts
 export const GET = withRequest(async (req, _ctx) => {
   const actor = await getActor();
   const { id } = await _ctx.params;
   await getDemandForActor(actor, id); // authorizes view / 404s for a guest cross-client
-  return NextResponse.json({ comments: await listComments(actor, "Demand", id) });
+  const clientId = await demandClientId(id);
+  return NextResponse.json({ comments: await listComments(actor, { type: "Demand", id, clientId }) });
 });
 export const POST = withRequest(async (req, _ctx) => {
   const actor = await getActor();
   const { id } = await _ctx.params;
   const { body, visibleToClient } = commentBody.parse(await req.json().catch(() => null));
-  const demand = await getDemandForActor(actor, id);
-  authorize(actor, "comment.create", { type: "demand", id, clientId: (demand as any).clientId ?? null });
-  const created = await runInTransaction((tx) =>
-    addComment(tx, { actor, subjectType: "Demand", subjectId: id, body, visibleToClient }));
-  return NextResponse.json({ comment: serializeComment(actor, { ...created, author: { kind: actor.kind, displayName: "" } as any }) }, { status: 201 });
+  await getDemandForActor(actor, id); // 404s a guest cross-client
+  const clientId = await demandClientId(id);
+  authorize(actor, "comment.create", { type: "demand", id, clientId });
+  await runInTransaction((tx) =>
+    addComment(tx, { actor, subject: { type: "Demand", id, clientId }, body, visibleToClient }));
+  return NextResponse.json({ comments: await listComments(actor, { type: "Demand", id, clientId }) }, { status: 201 });
 });
 ```
-  - **Ruling:** the POST response re-lists rather than hand-serializing (`serializeComment` needs the author join). Simpler: after `addComment`, `return NextResponse.json({ comments: await listComments(actor, "Demand", id) }, { status: 201 })`. Use that.
+  - **Ruling:** the POST response re-lists (`listComments`) rather than hand-serializing one row — `serializeComment` needs the author join.
   - `commentBody = z.object({ body: z.string().trim().min(1).max(5000), visibleToClient: z.boolean().optional() })`.
 
 - [ ] **Step 4: Build `DemandDrawer`** — `"use client"`. `useEffect` on `open && id` → `fetch("/api/demands/" + id)` + `fetch("/api/demands/" + id + "/comments")`; loading + error states. Layout inside `<Drawer open onClose title={demand.title} idLabel={demand.ref}>`: a status `Pill`; a **Problem** `Panel` (the `problem` text); a **Worth assessment** section — two `Panel`s side by side (Business value: `businessValue` text + `valueScore`/10 if set; Effort & feasibility: `effort` + `feasibility` text) — **read-only in this task**; **Cost of delay** `Panel` (text); **Activity** `Panel` with `<Timeline items={activity} />`; **Comments** `Panel` — a list of `SerializedComment` + a `<textarea>` + a "visible to client" checkbox (internal only) + submit → POST → replace list. Style with `DemandDrawer.module.css`.
@@ -932,7 +944,7 @@ test("a guest demand goes intake → triage → scored → decided, audited at e
   // 3. CEO scoreValue, CTO scoreEffort, CEO setCostOfDelay → status flips to WORTH_ASSESSED on the last one.
   // 4. CTO decideDemand PURSUE (CTO is not the submitter) → APPROVED, worth.decision PURSUE, submitter notified + EmailOutbox row.
   // assert: audit actions in order == ["demand.create","demand.triage_started","demand.value_scored","demand.effort_scored","demand.cost_of_delay_set","demand.decided"];
-  // assert: serializeDemand(guestActor, final) has no INTERNAL_ONLY_KEYS and status "Approved".
+  // assert: Object.keys(serializeDemand(guestActor, final)) === [...DEMAND_GUEST_KEYS, "status", "clientName"], status "Approved".
 });
 
 test("SoD: the CEO both submits and (as sole approver) decides — override required, justified, and both audit events present", async () => { /* … */ });
@@ -940,7 +952,7 @@ test("SoD: the CEO both submits and (as sole approver) decides — override requ
 
 - [ ] **Step 2: Run it, watch it fail on the first missing wiring, fix, repeat until green.** (If everything from Tasks 1–9 is correct it may pass first try — that is fine, it is a regression anchor.)
 
-- [ ] **Step 3: Update `prisma/seed.ts`** — a `seedDemoDemands()` function: a `Client` "Northwind Traders", a `GUEST` user `guest@northwind.example` (password `Keel-guest-2026`, hashed via `hashPassword`), an internal `ceo@keel.local` + `cto@keel.local` if not already seeded, and demands: one `SUBMITTED`, one `TRIAGING` with a partial worth, one `APPROVED (PURSUE)`. Idempotent (`upsert` on natural keys). Wire into the `seed` script.
+- [ ] **Step 3: Extend `prisma/seed.ts`** — it already exists (plan-1a Task 10): idempotent `admin@keel.local` (4 hats) + `Client` "Northwind Traders". This task only **adds** a `seedDemoDemands()` that **composes** with that — do not re-create the admin or a second "Northwind Traders" (`Client.name` is `@unique` now — a bare `create` with the same name throws `P2002`; look the existing one up by name, or `upsert`). Add: a `GUEST` user `guest@northwind.example` (`upsert` on email; password `Keel-guest-2026` via `hashPassword`; `clientId` = the Northwind client's id), `ceo@keel.local` + `cto@keel.local` if absent, and demands one `SUBMITTED` / one `TRIAGING` with a partial worth / one `APPROVED (PURSUE)` (`upsert` on `ref` — allocate fixed demo refs like `DEM-9001..9003` so re-running the seed is a no-op). Wire `seedDemoDemands()` into the existing `main()` behind a `NODE_ENV !== "production"` guard.
 
 - [ ] **Step 4: Run `pnpm db:reset` (dev) then `pnpm seed`; `pnpm dev`; walk the DoD checklist manually:**
   - [ ] sign in as `guest@northwind.example` → `/portal/demands` shows their demands in plain words
@@ -979,7 +991,7 @@ Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 
 - **Spec §4 `/triage` "starts triage (→ triaging)"** — Task 3 `startTriage`. ✓
 - **Spec §4 guest sees only create + list + get + comments** — enforced by `authorize` (`demand.score.*` / `demand.decide` / `demand.reject` all `requireInternal` via `requireHat`/`requireAnyHat`) and `scopeToClient` on the list. Task 2 + Task 9 route tests. ✓
-- **Spec §5 `INTERNAL_ONLY_KEYS` for demand** — `DEMAND_INTERNAL_ONLY_KEYS` in Task 2; the spec lists `worthAssessment, affectedServiceInternalNote, decidedById, scorer ids`. The shipped serializer strips top-level keys, so `worth` (the whole assessment) is stripped as one key — `decidedById` / scorer ids never reach the guest because they live inside `worth`. `affectedServiceInternalNote` has no column yet → note as a v1 gap (there is only `affectedService`, which is guest-visible per §8.1). ✓ with a noted gap.
+- **Spec §5 internal-only fields for demand** — an **allowlist** now (`DEMAND_GUEST_KEYS` + `serializePick`, plan-1a Task 3), not a denylist. A guest gets exactly `["id","ref","title","problem","source","affectedService","createdAt"]` + the `guestTransform` (`status`, `clientName`). The spec's internal-only list (`worthAssessment, affectedServiceInternalNote, decidedById, scorer ids`) is covered by omission: `worth` (and everything inside it — `decidedById`, scorer ids) is simply absent from `guestKeys`. `affectedServiceInternalNote` has no column yet → v1 gap (only `affectedService`, guest-visible per §8.1). The allowlist means a column added to `Demand` later cannot leak to guests until deliberately added to `DEMAND_GUEST_KEYS`. ✓ with a noted gap.
 - **Spec §5 guest status mapping** — `guestStatusLabel` covers every `DemandStatus`; `CONVERTED → "In progress"` then "follows the linked Change to Delivered" is a plan-03 follow-up (commented). ✓
 - **Spec §6 audit events** — `demand.create` (T2), `demand.triage_started` (T3), `demand.value_scored` / `demand.effort_scored` (T3), `demand.decided` (T4), `demand.decide.override` (T4), `demand.rejected` (T4). `demand.converted` → plan-03. **Added beyond the spec:** `demand.cost_of_delay_set` (T3) — the spec omits an event for it though §8.2 makes it an editable field; flag for spec reconciliation. ✓
 - **Spec §7 notifications** — every row mapped to an `emitNotification` call in T2–T4; guest-submitter emails via a new `demand_decided` template (T4). ✓
