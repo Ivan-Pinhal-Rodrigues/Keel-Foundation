@@ -182,13 +182,18 @@ test("shows an inline error on 401 and does not navigate", async () => {
   export function serializeDemand(actor: Actor, row: DemandWithWorth): Record<string, unknown>;
   export function guestStatusLabel(status: $Enums.DemandStatus, decision: $Enums.WorthDecision | null, rejectionReason: string | null): string;
 
-  // src/server/modules/demand/service.ts
+  // src/server/modules/demand/service.ts  (SHIPPED Task 2 — commit 1e78832)
   export type CreateDemandInput = { title: string; problem: string; source: $Enums.DemandSource; affectedService?: string };
   export function createDemand(actor: Actor, tx: PrismaTransaction, input: CreateDemandInput): Promise<{ id: string; ref: string }>;
-  export function listDemands(actor: Actor, filters: { status?: $Enums.DemandStatus; source?: $Enums.DemandSource; mine?: boolean }): Promise<Record<string, unknown>[]>;
-  export function getDemandForActor(actor: Actor, id: string): Promise<Record<string, unknown>>; // throws NotFoundError
+  // Reads take a trailing `client: PrismaClient = prisma` so a test can pass `db()`
+  // (mirrors the shipped `listComments(actor, subject, client = prisma)`). Routes
+  // call with no client arg → the `@/server/db/client` singleton. `PrismaClient` is
+  // an `import type` — the Prisma value-import boundary still holds.
+  export function listDemands(actor: Actor, filters: { status?: $Enums.DemandStatus; source?: $Enums.DemandSource; mine?: boolean }, client?: PrismaClient): Promise<Record<string, unknown>[]>;
+  export function getDemandForActor(actor: Actor, id: string, client?: PrismaClient): Promise<Record<string, unknown>>; // throws NotFoundError
   ```
   `DemandWithWorth` = the Prisma `Demand` with `worth: WorthAssessment | null` and `client: { name } | null` included — a local type, not exported.
+  **Test-actor literals** in every task's tests are typed `const x: Actor = {...}`, **not** `as const` — `as const` gives `hats: readonly []` which fails `tsc` against `Actor.hats: Hat[]` (the repo's own `policy/__tests__/serialize.test.ts` uses the typed form). **Seed helpers** must give each `Client` a unique `name` (`Client.name` is `@unique` since plan-1a Task 10 — a literal name collides on the 2nd insert of a run).
 
 - [ ] **Step 1: Write the failing tests**
 
