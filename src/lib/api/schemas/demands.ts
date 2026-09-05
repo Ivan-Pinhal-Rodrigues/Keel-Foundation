@@ -33,11 +33,15 @@ export const createDemandBody = z.object({
 });
 export type CreateDemandBody = z.infer<typeof createDemandBody>;
 
-/** `GET /api/demands` query string. */
+/**
+ * `GET /api/demands` query string. `view` is read by the register page only
+ * (`register` list vs. `?view=board`, Task 7) — the list service ignores it.
+ */
 export const listDemandsQuery = z.object({
   status: z.enum(DEMAND_STATUSES).optional(),
   source: z.enum(DEMAND_SOURCES).optional(),
   mine: z.coerce.boolean().optional(),
+  view: z.enum(["register", "board"]).optional(),
 });
 export type ListDemandsQuery = z.infer<typeof listDemandsQuery>;
 

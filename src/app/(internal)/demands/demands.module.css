@@ -1,0 +1,141 @@
+/*
+ * Demand register (`plans/plan-01-demand.md` Task 5). Density and spacing follow
+ * prototypes/flightdeck.html — the .section-head / .linkchip / table rows. All
+ * colour comes from src/styles/tokens.css custom properties; no raw hex.
+ */
+
+.register {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  padding: 5px 10px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-2);
+  transition:
+    border-color 0.1s,
+    color 0.1s,
+    background 0.1s;
+}
+
+.chip:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.chip[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent-wash);
+  color: var(--accent-ink);
+}
+
+.sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.sortLabel {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.sort select {
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  padding: 5px 8px;
+}
+
+.sort select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/*
+ * The `ref` column renders as bare text (no wrapping element, so DataTable's
+ * row activator keeps a clean per-row name), so reach its <td> here for the
+ * mono treatment the prototype's `.t-id` carries. Scoped under `.register` so
+ * it cannot escape this view.
+ */
+.register :global(td:first-child) {
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.01em;
+  color: var(--text-3);
+}
+
+.title {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.clientCell {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.clientMark {
+  font-family: var(--mono);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--accent-ink);
+}
+
+.muted {
+  color: var(--text-3);
+}
+
+.worthCell {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.effort {
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.dots {
+  letter-spacing: 1px;
+  color: var(--accent);
+}
+
+.empty {
+  padding: 22px 16px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-3);
+}
