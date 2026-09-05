@@ -40,3 +40,23 @@ export const listDemandsQuery = z.object({
   mine: z.coerce.boolean().optional(),
 });
 export type ListDemandsQuery = z.infer<typeof listDemandsQuery>;
+
+/** `PATCH /api/demands/:id/value` body (field names follow the schema — ruling 2). */
+export const scoreValueBody = z.object({
+  businessValue: z.string().trim().min(1).max(2000),
+  valueScore: z.number().int().min(1).max(10).optional(),
+});
+export type ScoreValueBody = z.infer<typeof scoreValueBody>;
+
+/** `PATCH /api/demands/:id/effort` body. */
+export const scoreEffortBody = z.object({
+  effort: z.enum(["S", "M", "L"]),
+  feasibility: z.string().trim().max(2000).optional(),
+});
+export type ScoreEffortBody = z.infer<typeof scoreEffortBody>;
+
+/** `PATCH /api/demands/:id/cost-of-delay` body. */
+export const costOfDelayBody = z.object({
+  costOfDelay: z.string().trim().min(1).max(2000),
+});
+export type CostOfDelayBody = z.infer<typeof costOfDelayBody>;

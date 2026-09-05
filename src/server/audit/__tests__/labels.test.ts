@@ -22,10 +22,25 @@ test("every Phase 0 audit action has an explicit label", () => {
 });
 
 test("auditActionLabel humanises an unknown action", () => {
-  expect(auditActionLabel("demand.value_scored")).toBe("Demand value scored");
+  expect(auditActionLabel("demand.some_unregistered_action")).toBe(
+    "Demand some unregistered action",
+  );
+});
+
+test("the Task 3 demand actions carry an explicit label", () => {
+  for (const a of [
+    "demand.create",
+    "demand.triage_started",
+    "demand.value_scored",
+    "demand.effort_scored",
+    "demand.cost_of_delay_set",
+  ])
+    expect(AUDIT_ACTION_LABELS[a], a).toBeTruthy();
 });
 
 test("guestAuditActionLabel hides internal-only actions", () => {
   expect(guestAuditActionLabel("comment.created")).toBeTruthy();
+  expect(guestAuditActionLabel("demand.create")).toBeTruthy();
   expect(guestAuditActionLabel("session.revoked")).toBeNull();
+  expect(guestAuditActionLabel("demand.triage_started")).toBeNull();
 });
