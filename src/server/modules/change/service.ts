@@ -1,4 +1,4 @@
-import type { $Enums, PrismaClient } from "@prisma/client";
+import type { $Enums, Prisma, PrismaClient } from "@prisma/client";
 import { auditActionLabel } from "@/server/audit/labels";
 import { writeAudit } from "@/server/audit/write";
 import { prisma } from "@/server/db/client";
@@ -8,7 +8,7 @@ import { nextRef } from "@/server/ids/ref";
 import { getApprovalState } from "@/server/modules/approval/service";
 import type { Actor } from "@/server/policy/actor";
 import { authorize } from "@/server/policy/authorize";
-import { NotFoundError } from "@/server/policy/errors";
+import { ForbiddenError, NotFoundError } from "@/server/policy/errors";
 import { requireInternal } from "@/server/policy/subjects/helpers";
 import { serializeChange, serializeChangeListItem } from "./serialize";
 
@@ -127,6 +127,152 @@ export async function createChangeFromDemand(
       });
       return { id: existing.id, ref: existing.ref, created: false };
     }
+    throw e;
+  }
+}
+
+/**
+ * The change edit + incident-link writes (`plans/plan-03-change-approvals`
+ * Task 6). Each takes the caller's `tx` so the change row and its `AuditEvent`s
+ * commit or roll back together. The `change.edit` rule allows the owner OR a
+ * DEVELOPER, so the owner id is loaded first and passed on the subject — the
+ * load precedes the gate here for that reason.
+ */
+
+const EDIT_LOCKED_STATUSES: $Enums.ChangeStatus[] = [
+  "IMPLEMENTING",
+  "PIR",
+  "CLOSED",
+  "ROLLED_BACK",
+];
+
+export type EditChangeInput = {
+  rfc?: string;
+  riskLevel?: $Enums.Level;
+  impactAssessment?: string;
+  rollbackPlan?: string;
+};
+
+/**
+ * Edit the RFC / risk / impact / rollback fields of a change. Only the provided
+ * keys are written. Rejected once the change is `IMPLEMENTING` or later — the
+ * record is frozen for implementation. Beyond the always-written `change.edited`
+ * event, setting `riskLevel` also writes `change.risk_assessed` and setting a
+ * non-empty `rollbackPlan` also writes `change.rollback_plan_set`.
+ */
+export async function editChange(
+  actor: Actor,
+  tx: PrismaTransaction,
+  id: string,
+  input: EditChangeInput,
+): Promise<void> {
+  const row = await tx.change.findUnique({
+    where: { id },
+    select: { ownerId: true, status: true },
+  });
+  authorize(actor, "change.edit", {
+    type: "change",
+    id,
+    ownerId: row?.ownerId,
+  });
+  if (!row) throw new NotFoundError("not found");
+
+  if (EDIT_LOCKED_STATUSES.includes(row.status)) {
+    throw new ForbiddenError("the change is locked for editing");
+  }
+
+  const data: Prisma.ChangeUpdateInput = {};
+  if (input.rfc !== undefined) data.rfc = input.rfc;
+  if (input.riskLevel !== undefined) data.riskLevel = input.riskLevel;
+  if (input.impactAssessment !== undefined) {
+    data.impactAssessment = input.impactAssessment;
+  }
+  if (input.rollbackPlan !== undefined) data.rollbackPlan = input.rollbackPlan;
+
+  await tx.change.update({ where: { id }, data });
+
+  await writeAudit(tx, {
+    actorId: actor.id,
+    action: "change.edited",
+    subjectType: "Change",
+    subjectId: id,
+    payload: { fields: Object.keys(input) },
+  });
+
+  if (input.riskLevel !== undefined) {
+    await writeAudit(tx, {
+      actorId: actor.id,
+      action: "change.risk_assessed",
+      subjectType: "Change",
+      subjectId: id,
+      payload: { riskLevel: input.riskLevel },
+    });
+  }
+
+  if (input.rollbackPlan !== undefined && input.rollbackPlan.trim() !== "") {
+    await writeAudit(tx, {
+      actorId: actor.id,
+      action: "change.rollback_plan_set",
+      subjectType: "Change",
+      subjectId: id,
+      payload: {},
+    });
+  }
+}
+
+/**
+ * Link an incident to a change with a `CAUSED_BY` / `FIXES` kind. Idempotent on
+ * `ChangeIncidentLink @@unique([changeId, incidentId, kind])` — a repeat of an
+ * existing link is a no-op with no second audit event.
+ *
+ * The pre-check keeps the idempotent path on a clean transaction: a caught P2002
+ * would abort the surrounding interactive transaction (Postgres 25P02). The
+ * `try/catch` stays as a backstop for a genuine concurrent race (same shape as
+ * `createChangeFromDemand`).
+ */
+export async function linkIncident(
+  actor: Actor,
+  tx: PrismaTransaction,
+  id: string,
+  input: { incidentId: string; kind: $Enums.LinkKind },
+): Promise<void> {
+  const row = await tx.change.findUnique({
+    where: { id },
+    select: { ownerId: true },
+  });
+  authorize(actor, "change.edit", {
+    type: "change",
+    id,
+    ownerId: row?.ownerId,
+  });
+  if (!row) throw new NotFoundError("not found");
+
+  const incident = await tx.incident.findUnique({
+    where: { id: input.incidentId },
+    select: { id: true },
+  });
+  if (!incident) throw new NotFoundError("incident not found");
+
+  const existing = await tx.changeIncidentLink.findFirst({
+    where: { changeId: id, incidentId: input.incidentId, kind: input.kind },
+    select: { id: true },
+  });
+  if (existing) return;
+
+  try {
+    await tx.changeIncidentLink.create({
+      data: { changeId: id, incidentId: input.incidentId, kind: input.kind },
+    });
+
+    await writeAudit(tx, {
+      actorId: actor.id,
+      action: "change.incident_linked",
+      subjectType: "Change",
+      subjectId: id,
+      payload: { incidentId: input.incidentId, kind: input.kind },
+    });
+  } catch (e) {
+    if (isUniqueViolation(e)) return;
     throw e;
   }
 }

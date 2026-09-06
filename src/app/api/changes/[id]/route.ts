@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
+import { editChangeBody } from "@/lib/api/schemas/changes";
 import { withRequest } from "@/lib/api/with-request";
 import { getActor } from "@/server/auth/actor";
-import { getChangeForActor } from "@/server/modules/change/service";
+import { runInTransaction } from "@/server/db/tx";
+import { editChange, getChangeForActor } from "@/server/modules/change/service";
 
 /**
  * `GET /api/changes/:id` — one change, internal-serialized, with its approval
@@ -20,5 +22,23 @@ export async function GET(
   return withRequest(async (): Promise<Response> => {
     const actor = await getActor();
     return NextResponse.json(await getChangeForActor(actor, id));
+  })(req);
+}
+
+/**
+ * `PATCH /api/changes/:id` — the owner or a DEVELOPER edits the RFC / risk /
+ * impact / rollback fields. Rejected once the change is `IMPLEMENTING` or later
+ * (403); a missing id is a 404. `plans/plan-03-change-approvals` Task 6.
+ */
+export async function PATCH(
+  req: Request,
+  { params }: { params: Promise<{ id: string }> },
+): Promise<Response> {
+  const { id } = await params;
+  return withRequest(async (): Promise<Response> => {
+    const actor = await getActor();
+    const input = editChangeBody.parse(await req.json().catch(() => null));
+    await runInTransaction((tx) => editChange(actor, tx, id, input));
+    return NextResponse.json({ ok: true });
   })(req);
 }

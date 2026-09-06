@@ -27,6 +27,29 @@ export const createChangeBody = z.object({
 export type CreateChangeBody = z.infer<typeof createChangeBody>;
 
 /**
+ * `PATCH /api/changes/:id` — edit the RFC / risk / impact / rollback fields.
+ * Every field is optional but at least one must be present.
+ */
+export const editChangeBody = z
+  .object({
+    rfc: z.string().trim().min(1).max(20000).optional(),
+    riskLevel: z.enum(["LOW", "MEDIUM", "HIGH"]).optional(),
+    impactAssessment: z.string().trim().min(1).max(10000).optional(),
+    rollbackPlan: z.string().trim().min(1).max(10000).optional(),
+  })
+  .refine((b) => Object.keys(b).length > 0, {
+    message: "at least one field is required",
+  });
+export type EditChangeBody = z.infer<typeof editChangeBody>;
+
+/** `POST /api/changes/:id/link-incident` — link an incident to the change. */
+export const linkIncidentBody = z.object({
+  incidentId: z.string().trim().min(1),
+  kind: z.enum(["CAUSED_BY", "FIXES"]),
+});
+export type LinkIncidentBody = z.infer<typeof linkIncidentBody>;
+
+/**
  * `GET /api/changes` — list filters. True-only semantics for the booleans:
  * `?mine=true` filters, `?mine=false` and an omitted param both mean "not
  * filtered". (`z.coerce.boolean()` would treat any non-empty string, `"false"`
