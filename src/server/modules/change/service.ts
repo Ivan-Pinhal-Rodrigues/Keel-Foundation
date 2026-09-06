@@ -597,6 +597,19 @@ export async function scheduleChange(
         subjectId: id,
         payload: { from: "APPROVAL", to: "SCHEDULED" },
       });
+      // Spec 03 §7 "scheduled → the other internal user". A NORMAL approved
+      // change enters SCHEDULED through this folded transition (plan ruling
+      // P4), never through `advanceChange` — so the "scheduled" notification
+      // has to fire here too. The two paths are mutually exclusive: a change
+      // enters SCHEDULED exactly once, so exactly one notification is emitted.
+      await emitNotification(tx, {
+        recipients: { audience: "ALL_INTERNAL" },
+        kind: "STATUS_CHANGED",
+        subjectType: "change",
+        subjectId: id,
+        summary: `${row.ref} moved to ${changeStatusLabel("SCHEDULED")}`,
+        excludeActorId: actor.id,
+      });
     } else {
       throw new ForbiddenError(
         "the change must be approved before it can be scheduled",

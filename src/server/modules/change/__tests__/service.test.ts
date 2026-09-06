@@ -580,6 +580,104 @@ test("scheduleChange rejects a past window and an end-before-start window; a val
   expect(audit).toHaveLength(1);
 });
 
+test("scheduleChange on an APPROVAL-status NORMAL change with a PENDING request → ForbiddenError; the change stays APPROVAL and no change.advanced is written", async () => {
+  const dev = await seedInternal(["DEVELOPER"]);
+  const id = await seedChangeAt(dev.actor, {
+    status: "APPROVAL",
+    rollbackPlan: "revert",
+  });
+  await seedApproval(id, dev.id, "PENDING");
+  const day = 86_400_000;
+
+  await expect(
+    tx((t) =>
+      scheduleChange(dev.actor, t, id, {
+        windowStart: new Date(Date.now() + day),
+        windowEnd: new Date(Date.now() + 2 * day),
+      }),
+    ),
+  ).rejects.toBeInstanceOf(ForbiddenError);
+
+  const row = await db().change.findUniqueOrThrow({ where: { id } });
+  expect(row.status).toBe("APPROVAL");
+  const advanced = await db().auditEvent.findMany({
+    where: { action: "change.advanced", subjectId: id },
+  });
+  expect(advanced).toHaveLength(0);
+});
+
+test("scheduleChange on an APPROVAL-status change with an APPROVED request enters SCHEDULED: change.scheduled + change.advanced audits, and exactly one scheduled notification to the other internal user", async () => {
+  const dev = await seedInternal(["DEVELOPER"]);
+  const other = await seedInternal(["DEVELOPER"]);
+  const id = await seedChangeAt(dev.actor, {
+    status: "APPROVAL",
+    rollbackPlan: "revert",
+  });
+  await seedApproval(id, dev.id, "APPROVED");
+  const day = 86_400_000;
+  const windowStart = new Date(Date.now() + day);
+  const windowEnd = new Date(Date.now() + 2 * day);
+
+  await tx((t) => scheduleChange(dev.actor, t, id, { windowStart, windowEnd }));
+
+  const row = await db().change.findUniqueOrThrow({ where: { id } });
+  expect(row.status).toBe("SCHEDULED");
+
+  const scheduled = await db().auditEvent.findMany({
+    where: { action: "change.scheduled", subjectId: id },
+  });
+  expect(scheduled).toHaveLength(1);
+  const advanced = await db().auditEvent.findMany({
+    where: { action: "change.advanced", subjectId: id },
+  });
+  expect(advanced).toHaveLength(1);
+  const advancedRow = await db().auditEvent.findFirstOrThrow({
+    where: { action: "change.advanced", subjectId: id },
+  });
+  expect(advancedRow.payload).toMatchObject({
+    from: "APPROVAL",
+    to: "SCHEDULED",
+  });
+
+  // ALL_INTERNAL resolves every internal user in the per-file db, so scope the
+  // assertions to this change and the two users the test seeded.
+  const toOther = await db().notification.findMany({
+    where: { subjectId: id, kind: "STATUS_CHANGED", userId: other.id },
+  });
+  expect(toOther).toHaveLength(1);
+  const toOtherRow = await db().notification.findFirstOrThrow({
+    where: { subjectId: id, kind: "STATUS_CHANGED", userId: other.id },
+  });
+  expect((toOtherRow.payload as { summary: string }).summary).toBe(
+    `${row.ref} moved to Scheduled`,
+  );
+  const toActor = await db().notification.findMany({
+    where: { subjectId: id, kind: "STATUS_CHANGED", userId: dev.id },
+  });
+  expect(toActor).toHaveLength(0);
+});
+
+test("scheduleChange on an APPROVAL-status EMERGENCY change with a still-PENDING request enters SCHEDULED", async () => {
+  const dev = await seedInternal(["DEVELOPER"]);
+  const id = await seedChangeAt(dev.actor, {
+    status: "APPROVAL",
+    changeType: "EMERGENCY",
+    rollbackPlan: "revert",
+  });
+  await seedApproval(id, dev.id, "PENDING");
+  const day = 86_400_000;
+
+  await tx((t) =>
+    scheduleChange(dev.actor, t, id, {
+      windowStart: new Date(Date.now() + day),
+      windowEnd: new Date(Date.now() + 2 * day),
+    }),
+  );
+
+  const row = await db().change.findUniqueOrThrow({ where: { id } });
+  expect(row.status).toBe("SCHEDULED");
+});
+
 test("rollbackChange from IMPLEMENTING → ROLLED_BACK, change.rolled_back audited, all internal users notified; a terminal change rejects further transitions", async () => {
   const dev = await seedInternal(["DEVELOPER"]);
   const other = await seedInternal(["DEVELOPER"]);
