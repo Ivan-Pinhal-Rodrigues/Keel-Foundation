@@ -10,6 +10,7 @@ const { db, asActor } = withRouteTestDb();
 
 let demandId = "";
 let internal: TestActor;
+let ownGuest: TestActor;
 let otherGuest: TestActor;
 
 beforeAll(async () => {
@@ -56,6 +57,19 @@ beforeAll(async () => {
     }),
   );
 
+  ownGuest = await asActor(
+    await db.user.create({
+      data: {
+        email: "a-guest-2@a.example",
+        passwordHash: "x",
+        displayName: "A Guest 2",
+        kind: "GUEST",
+        hats: [],
+        clientId: clientA.id,
+      },
+    }),
+  );
+
   otherGuest = await asActor(
     await db.user.create({
       data: {
@@ -84,6 +98,20 @@ test("internal GET /api/demands/:id → 200 with the serialized demand", async (
   expect(body.id).toBe(demandId);
   expect(body.ref).toBe("DEM-ROUTEID");
   expect(body).toHaveProperty("status", "SUBMITTED");
+});
+
+test("a guest of the demand's own client GET /api/demands/:id → 200 with a plain-word status and no internal keys", async () => {
+  const res = await GET(req(ownGuest), {
+    params: Promise.resolve({ id: demandId }),
+  });
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as Record<string, unknown>;
+  expect(body.id).toBe(demandId);
+  expect(body).toHaveProperty("status", "In review");
+  expect(body).not.toHaveProperty("worth");
+  expect(body).not.toHaveProperty("submittedById");
+  expect(body).not.toHaveProperty("valueScore");
+  expect(body).not.toHaveProperty("decidedAt");
 });
 
 test("a guest from another client GET /api/demands/:id → 404 (not 403)", async () => {

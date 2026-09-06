@@ -98,3 +98,33 @@ test("GET returns an array of serialized rows; guest rows carry no worth", async
     expect(d).not.toHaveProperty("submittedById");
   }
 });
+
+test("a guest GET /api/demands exposes only the allowlisted keys — no worth, submittedById, valueScore, or decidedAt", async () => {
+  const res = await GET(request({ method: "GET" }, guest));
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as { demands: Record<string, unknown>[] };
+  expect(body.demands.length).toBeGreaterThan(0);
+
+  const allowed = new Set([
+    "id",
+    "ref",
+    "title",
+    "problem",
+    "source",
+    "affectedService",
+    "createdAt",
+    "status",
+    "clientName",
+  ]);
+  for (const d of body.demands) {
+    for (const key of Object.keys(d)) {
+      expect(allowed.has(key)).toBe(true);
+    }
+    expect(d).not.toHaveProperty("worth");
+    expect(d).not.toHaveProperty("submittedById");
+    expect(d).not.toHaveProperty("valueScore");
+    expect(d).not.toHaveProperty("decidedAt");
+    // The plain-word status, never the raw enum.
+    expect(d.status).not.toMatch(/^[A-Z_]+$/);
+  }
+});
