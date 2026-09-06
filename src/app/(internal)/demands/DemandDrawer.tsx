@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { Drawer } from "@/components/Drawer";
 import { Panel } from "@/components/Panel";
@@ -13,7 +14,8 @@ import { OverrideDialog } from "./OverrideDialog";
  * The demand drawer — one demand plus its activity timeline and comment thread
  * (`plans/plan-01-demand.md` Task 6), with the Task 7 write actions layered on:
  * triage pick-up, value / effort / cost-of-delay scoring, the worth decision,
- * the single-approver override, an outright reject, and a disabled Convert stub.
+ * the single-approver override, an outright reject, and — for an approved,
+ * pursued demand — Convert, which creates the change and routes to /changes.
  *
  * Opened from `DemandRegister`'s row click. On `open` it fetches
  * `GET /api/demands/:id` (role-serialized demand + assembled `activity`) and
@@ -110,6 +112,7 @@ export function DemandDrawer({
   onClose: () => void;
   viewer: DemandViewer;
 }) {
+  const router = useRouter();
   const [demand, setDemand] = useState<DemandView | null>(null);
   const [comments, setComments] = useState<CommentView[]>([]);
   const [loading, setLoading] = useState(true);
@@ -247,6 +250,20 @@ export function DemandDrawer({
     });
 
   const startTriage = () => runWrite("POST", `/api/demands/${id}/triage`);
+
+  // Convert leaves the demand behind for the new change — navigate to the
+  // change register rather than `runWrite`'s re-fetch of this demand.
+  async function onConvert() {
+    setActionError(null);
+    setBusy(true);
+    try {
+      await apiFetch(`/api/demands/${id}/convert`, { method: "POST" });
+      router.push("/changes");
+    } catch {
+      setActionError("That action could not be completed.");
+      setBusy(false);
+    }
+  }
 
   const confirmReject = () =>
     runWrite("POST", `/api/demands/${id}/reject`, {
@@ -524,8 +541,8 @@ export function DemandDrawer({
                   <button
                     type="button"
                     className={styles.actionGhost}
-                    disabled
-                    title="Available once the change module ships (plan-03)"
+                    onClick={onConvert}
+                    disabled={busy}
                   >
                     Convert
                   </button>

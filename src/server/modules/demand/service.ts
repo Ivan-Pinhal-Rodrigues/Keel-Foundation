@@ -4,6 +4,7 @@ import { writeAudit } from "@/server/audit/write";
 import { prisma } from "@/server/db/client";
 import type { PrismaTransaction } from "@/server/db/tx";
 import { nextRef } from "@/server/ids/ref";
+import { createChangeFromDemand } from "@/server/modules/change/service";
 import { emitNotification } from "@/server/modules/notify/emit";
 import { type Actor, isInternal } from "@/server/policy/actor";
 import { authorize } from "@/server/policy/authorize";
@@ -115,7 +116,12 @@ export async function getDemandForActor(
 ): Promise<Record<string, unknown>> {
   const row = await client.demand.findUnique({
     where: { id },
-    include: DEMAND_INCLUDE,
+    include: {
+      ...DEMAND_INCLUDE,
+      // plan-03: the guest status phrase for a CONVERTED demand follows the
+      // linked change ("Delivered" once it closes).
+      convertedToChange: { select: { status: true } },
+    },
   });
   if (!row) throw new NotFoundError("not found");
   assertVisibleToGuest(actor, row);
@@ -565,4 +571,72 @@ export async function rejectDemand(
     summary: `Your demand "${row.title}" was declined`,
     guestStatus: guestStatusLabel("REJECTED", "DROP", input.reason),
   });
+}
+
+/**
+ * Convert an approved, pursued demand into a change (`plans/plan-03-change-approvals`
+ * Task 9). The change row is created by `createChangeFromDemand`, which is
+ * idempotent on `Change.originatingDemandId @unique`; this service moves the
+ * demand `APPROVED → CONVERTED` and writes the `demand.converted` audit event
+ * only on the call that actually created the change. A second call finds the
+ * existing change, does nothing else, and returns the same ids — the demand is
+ * already `CONVERTED`, so the `assertTransition` (and the audit) stay gated on
+ * `created` to keep the repeat a clean no-op.
+ */
+export async function convertDemand(
+  actor: Actor,
+  tx: PrismaTransaction,
+  id: string,
+): Promise<{ changeId: string; changeRef: string }> {
+  // Gate before the load: a guest / DEVELOPER-only actor is denied 403
+  // regardless of the id, uniformly with the rest of this module.
+  authorize(actor, "demand.convert", { type: "demand", id });
+
+  const row = await tx.demand.findUnique({
+    where: { id },
+    include: {
+      worth: true,
+      convertedToChange: { select: { id: true, ref: true } },
+    },
+  });
+  if (!row) throw new NotFoundError("not found");
+
+  // Idempotent second call: the demand is already CONVERTED and its change
+  // exists — return the same ids and write nothing further. (The status guard
+  // below would otherwise reject the now-CONVERTED demand.)
+  if (row.status === "CONVERTED" && row.convertedToChange) {
+    return {
+      changeId: row.convertedToChange.id,
+      changeRef: row.convertedToChange.ref,
+    };
+  }
+
+  if (!(row.status === "APPROVED" && row.worth?.decision === "PURSUE")) {
+    throw new ForbiddenError(
+      "only an approved, pursued demand can be converted",
+    );
+  }
+
+  const {
+    id: changeId,
+    ref: changeRef,
+    created,
+  } = await createChangeFromDemand(tx, { demandId: id, actor });
+
+  if (created) {
+    assertTransition(row.status, "CONVERTED");
+    await tx.demand.update({
+      where: { id },
+      data: { status: "CONVERTED" },
+    });
+    await writeAudit(tx, {
+      actorId: actor.id,
+      action: "demand.converted",
+      subjectType: "Demand",
+      subjectId: id,
+      payload: { changeId, changeRef },
+    });
+  }
+
+  return { changeId, changeRef };
 }

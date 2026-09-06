@@ -5,6 +5,14 @@ import userEvent from "@testing-library/user-event";
 import { DemandDrawer } from "@/app/(internal)/demands/DemandDrawer";
 import { ApiError, apiFetch } from "@/lib/api/client";
 
+// The drawer navigates to `/changes` with `useRouter().push` after a successful
+// convert. The repo carries a `next/navigation` mock in the sibling register /
+// board tests for the same reason.
+const { push } = vi.hoisted(() => ({ push: vi.fn() }));
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push, replace: vi.fn() }),
+}));
+
 // The drawer talks to the route handlers through `apiFetch` (Global
 // Constraint), so mock that — not `globalThis.fetch`. Keep `ApiError` real so
 // the component's `instanceof ApiError` branch still works.
@@ -18,6 +26,7 @@ const apiFetchMock = vi.mocked(apiFetch);
 afterEach(() => {
   cleanup();
   apiFetchMock.mockReset();
+  push.mockReset();
 });
 
 const demand = {
@@ -48,7 +57,7 @@ type WireOpts = {
 };
 
 const WRITE_PATHS =
-  /^\/api\/demands\/d1\/(triage|value|effort|cost-of-delay|decision|reject)$/;
+  /^\/api\/demands\/d1\/(triage|value|effort|cost-of-delay|decision|reject|convert)$/;
 
 /** Wire `apiFetch` for the two initial GETs, the comment POST, and the writes. */
 function wire(opts: WireOpts = {}) {
@@ -284,6 +293,36 @@ test("when the viewer is the submitter, clicking Pursue opens the override dialo
     };
     expect(body.decision).toBe("PURSUE");
     expect(body.overrideJustification.trim().length >= 20).toBeTruthy();
+  });
+});
+
+test("the Convert button on an APPROVED/PURSUE demand calls POST .../convert and navigates to /changes", async () => {
+  wire({
+    demand: {
+      ...demand,
+      status: "APPROVED",
+      worth: { ...demand.worth, decision: "PURSUE" },
+    },
+  });
+  render(
+    <DemandDrawer
+      id="d1"
+      open
+      onClose={vi.fn()}
+      viewer={internal(["BUSINESS_APPROVER"])}
+    />,
+  );
+
+  await userEvent.click(await screen.findByRole("button", { name: "Convert" }));
+
+  await waitFor(() => {
+    expect(
+      apiFetchMock.mock.calls.some(
+        ([path, opts]) =>
+          path === "/api/demands/d1/convert" && opts?.method === "POST",
+      ),
+    ).toBe(true);
+    expect(push).toHaveBeenCalledWith("/changes");
   });
 });
 

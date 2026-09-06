@@ -11,6 +11,7 @@ import {
   setCostOfDelay,
   decideDemand,
   rejectDemand,
+  convertDemand,
 } from "@/server/modules/demand/service";
 import type { Actor, Hat } from "@/server/policy/actor";
 import {
@@ -626,4 +627,98 @@ test("decide / reject on a demand that is not awaiting a decision → ForbiddenE
       ),
     ),
   ).rejects.toBeInstanceOf(ForbiddenError);
+});
+
+// --- Task 9: demand → change conversion ----------------------------------
+
+test("convertDemand on an APPROVED/PURSUE demand: creates a Change linked to the demand, moves the demand to CONVERTED, audits demand.converted", async () => {
+  const { id } = await seedAssessedDemand({
+    status: "APPROVED",
+    decision: "PURSUE",
+  });
+  const biz = (await seedInternal(["BUSINESS_APPROVER"])).actor;
+
+  const { changeId, changeRef } = await ctx(() =>
+    db().$transaction((tx) => convertDemand(biz, tx, id)),
+  );
+
+  expect(changeRef).toMatch(/^CHG-\d{4}$/);
+  const change = await db().change.findUniqueOrThrow({
+    where: { id: changeId },
+  });
+  expect(change.originatingDemandId).toBe(id);
+
+  const d = await db().demand.findUniqueOrThrow({ where: { id } });
+  expect(d.status).toBe("CONVERTED");
+
+  const audit = await db().auditEvent.findMany({
+    where: { subjectId: id, action: "demand.converted" },
+  });
+  expect(audit).toHaveLength(1);
+  expect(audit[0]?.payload).toMatchObject({ changeId, changeRef });
+});
+
+test("convertDemand is idempotent: a second call returns the same changeId and writes no second demand.converted audit", async () => {
+  const { id } = await seedAssessedDemand({
+    status: "APPROVED",
+    decision: "PURSUE",
+  });
+  const biz = (await seedInternal(["BUSINESS_APPROVER"])).actor;
+
+  const first = await ctx(() =>
+    db().$transaction((tx) => convertDemand(biz, tx, id)),
+  );
+  const second = await ctx(() =>
+    db().$transaction((tx) => convertDemand(biz, tx, id)),
+  );
+
+  expect(second.changeId).toBe(first.changeId);
+  expect(second.changeRef).toBe(first.changeRef);
+  expect(
+    await db().auditEvent.findMany({
+      where: { subjectId: id, action: "demand.converted" },
+    }),
+  ).toHaveLength(1);
+});
+
+test("convertDemand on a PARKED (APPROVED but decision PARK) demand → ForbiddenError", async () => {
+  const { id } = await seedAssessedDemand({
+    status: "APPROVED",
+    decision: "PARK",
+  });
+  const biz = (await seedInternal(["BUSINESS_APPROVER"])).actor;
+
+  await expect(
+    ctx(() => db().$transaction((tx) => convertDemand(biz, tx, id))),
+  ).rejects.toBeInstanceOf(ForbiddenError);
+});
+
+test("a guest cannot convert (ForbiddenError)", async () => {
+  const { id, guestActor } = await seedAssessedDemand({
+    status: "APPROVED",
+    decision: "PURSUE",
+  });
+
+  await expect(
+    ctx(() => db().$transaction((tx) => convertDemand(guestActor, tx, id))),
+  ).rejects.toBeInstanceOf(ForbiddenError);
+});
+
+test("getDemandForActor for a guest whose demand is CONVERTED and whose change is CLOSED shows status 'Delivered'", async () => {
+  const { id, guestActor } = await seedAssessedDemand({
+    status: "APPROVED",
+    decision: "PURSUE",
+  });
+  const biz = (await seedInternal(["BUSINESS_APPROVER"])).actor;
+
+  const { changeId } = await ctx(() =>
+    db().$transaction((tx) => convertDemand(biz, tx, id)),
+  );
+  await db().change.update({
+    where: { id: changeId },
+    data: { status: "CLOSED" },
+  });
+
+  const view = await getDemandForActor(guestActor, id, db());
+  expect(view.status).toBe("Delivered");
 });

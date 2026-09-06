@@ -30,6 +30,7 @@ export function guestStatusLabel(
   status: $Enums.DemandStatus,
   decision: $Enums.WorthDecision | null,
   rejectionReason: string | null,
+  linkedChangeStatus?: $Enums.ChangeStatus | null,
 ): string {
   switch (status) {
     case "SUBMITTED":
@@ -39,7 +40,9 @@ export function guestStatusLabel(
     case "APPROVED":
       return decision === "PURSUE" ? "Approved" : "In review";
     case "CONVERTED":
-      return "In progress"; // plan-03: follow the linked Change to "Delivered"
+      // plan-03: the guest follows the linked Change — "Delivered" once it has
+      // closed, "In progress" while the work is still under way.
+      return linkedChangeStatus === "CLOSED" ? "Delivered" : "In progress";
     case "REJECTED":
       return rejectionReason ? `Declined — ${rejectionReason}` : "Declined";
   }
@@ -60,6 +63,8 @@ export function serializeDemand(
         (r.worth as { decision?: $Enums.WorthDecision } | null)?.decision ??
           null,
         (r.rejectionReason as string | null | undefined) ?? null,
+        (r.convertedToChange as { status: $Enums.ChangeStatus } | null)
+          ?.status ?? null,
       ),
       clientName: (r.client as { name: string } | null)?.name ?? null,
     }),
