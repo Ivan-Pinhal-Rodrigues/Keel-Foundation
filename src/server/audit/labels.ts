@@ -16,6 +16,14 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   "demand.decided": "Decision recorded",
   "demand.decide.override": "Single-approver override",
   "demand.rejected": "Declined",
+  "incident.create": "Incident reported",
+  "incident.categorized": "Categorised",
+  "incident.assigned": "Assigned",
+  "incident.transitioned": "Status changed",
+  "incident.resolved": "Resolved",
+  "incident.closed": "Closed",
+  "incident.reopened": "Reopened",
+  "incident.overdue": "Marked overdue",
 };
 
 /** The phrase, or a humanised fallback (`"demand.value_scored" → "Demand value scored"`). */
@@ -39,6 +47,10 @@ export function guestAuditActionLabel(action: string): string | null {
     "demand.rejected": "Declined",
     // demand.decide.override stays internal-only — a guest never sees that the
     // decision needed a single-approver override.
+    "incident.create": "Problem reported",
+    "incident.transitioned": "Status updated",
+    "incident.resolved": "Marked resolved",
+    "incident.closed": "Closed",
   };
 
   return GUEST_VISIBLE[action] ?? null;
