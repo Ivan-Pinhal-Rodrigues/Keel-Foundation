@@ -5,8 +5,10 @@ import {
   getApprovalState,
   openApprovalRequest,
   type OpenApprovalInput,
+  recordDecision,
 } from "@/server/modules/approval/service";
-import type { Hat } from "@/server/policy/actor";
+import type { Actor, Hat } from "@/server/policy/actor";
+import { ConflictError, ForbiddenError } from "@/server/policy/errors";
 import { withTestDb } from "@/test/db";
 
 const db = withTestDb();
@@ -26,6 +28,37 @@ async function seedInternal(hats: Hat[] = []): Promise<{ id: string }> {
     },
   });
   return { id: user.id };
+}
+
+async function seedActor(hats: Hat[] = []): Promise<Actor> {
+  const { id } = await seedInternal(hats);
+  return { id, kind: "INTERNAL", hats, clientId: null };
+}
+
+/** A 1-step standard request: a single TECHNICAL_APPROVER step. */
+function standardInput(
+  createdById: string,
+  subjectId: string,
+): OpenApprovalInput {
+  return {
+    subjectType: "change",
+    subjectId,
+    createdById,
+    policyKey: "change.standard",
+    steps: [{ order: 1, requiredHat: "TECHNICAL_APPROVER" }],
+  };
+}
+
+const open = (input: OpenApprovalInput) =>
+  ctx(() => db().$transaction((tx) => openApprovalRequest(tx, input)));
+
+const decide = (input: Parameters<typeof recordDecision>[1]) =>
+  ctx(() => db().$transaction((tx) => recordDecision(tx, input)));
+
+async function currentStepId(subjectId: string): Promise<string> {
+  const state = await getApprovalState("change", subjectId, db());
+  if (!state.currentStep) throw new Error("no current step");
+  return state.currentStep.id;
 }
 
 /** A 2-step high-risk request: TECHNICAL_APPROVER then BUSINESS_APPROVER. */
@@ -231,4 +264,283 @@ test("a re-opened request is a fresh row; getApprovalState returns the newer one
     where: { id: first.id },
   });
   expect(old.status).toBe("CANCELLED");
+});
+
+test("1-step request: one APPROVED decision resolves the request APPROVED", async () => {
+  const owner = await seedActor(["DEVELOPER"]);
+  const tech = await seedActor(["TECHNICAL_APPROVER"]);
+  const subjectId = rand();
+
+  const { id } = await open(standardInput(owner.id, subjectId));
+  const stepId = await currentStepId(subjectId);
+
+  const result = await decide({
+    stepId,
+    actor: tech,
+    decision: "APPROVED",
+    reason: "looks good",
+  });
+  expect(result).toEqual({ requestStatus: "APPROVED" });
+
+  const request = await db().approvalRequest.findUniqueOrThrow({
+    where: { id },
+    include: { steps: true },
+  });
+  expect(request.status).toBe("APPROVED");
+  expect(request.resolvedAt).not.toBeNull();
+  expect(request.steps[0]!.status).toBe("APPROVED");
+  expect(request.steps[0]!.resolvedAt).not.toBeNull();
+
+  const audit = await db().auditEvent.findMany({
+    where: { subjectType: "ApprovalRequest", subjectId: id },
+  });
+  const actions = audit.map((a) => a.action);
+  expect(actions).toContain("approval.step_approved");
+  expect(actions).toContain("approval.request_resolved");
+
+  const notes = await db().notification.findMany({
+    where: { subjectId: id, kind: "STATUS_CHANGED" },
+  });
+  expect(notes.map((n) => n.userId)).toEqual([owner.id]);
+});
+
+test("2-step high_risk: needs both; step 1 approval notifies the business approver; step 2 approval resolves it", async () => {
+  const owner = await seedActor(["DEVELOPER"]);
+  const tech = await seedActor(["TECHNICAL_APPROVER"]);
+  const business = await seedActor(["BUSINESS_APPROVER"]);
+  const subjectId = rand();
+
+  const { id } = await open(highRiskInput(owner.id, subjectId));
+
+  const step1 = await currentStepId(subjectId);
+  const first = await decide({
+    stepId: step1,
+    actor: tech,
+    decision: "APPROVED",
+    reason: "tech ok",
+  });
+  expect(first).toEqual({ requestStatus: "PENDING" });
+
+  const notes = await db().notification.findMany({
+    where: { subjectId: id, kind: "APPROVAL_NEEDED" },
+  });
+  expect(notes.map((n) => n.userId)).toContain(business.id);
+  expect(notes.map((n) => n.userId)).not.toContain(owner.id);
+  expect(notes.map((n) => n.userId)).not.toContain(tech.id);
+
+  const step2 = await currentStepId(subjectId);
+  expect(step2).not.toBe(step1);
+  const second = await decide({
+    stepId: step2,
+    actor: business,
+    decision: "APPROVED",
+    reason: "business ok",
+  });
+  expect(second).toEqual({ requestStatus: "APPROVED" });
+
+  const request = await db().approvalRequest.findUniqueOrThrow({
+    where: { id },
+  });
+  expect(request.status).toBe("APPROVED");
+});
+
+test("a rejection at step 1 resolves the request REJECTED and step 2 never becomes current", async () => {
+  const owner = await seedActor(["DEVELOPER"]);
+  const tech = await seedActor(["TECHNICAL_APPROVER"]);
+  const subjectId = rand();
+
+  const { id } = await open(highRiskInput(owner.id, subjectId));
+  const step1 = await currentStepId(subjectId);
+  const step2Id = (
+    await db().approvalStep.findFirstOrThrow({
+      where: { requestId: id, order: 2 },
+    })
+  ).id;
+
+  const result = await decide({
+    stepId: step1,
+    actor: tech,
+    decision: "REJECTED",
+    reason: "unsafe rollback plan",
+  });
+  expect(result).toEqual({ requestStatus: "REJECTED" });
+
+  const request = await db().approvalRequest.findUniqueOrThrow({
+    where: { id },
+    include: { steps: { orderBy: { order: "asc" } } },
+  });
+  expect(request.status).toBe("REJECTED");
+  expect(request.steps[1]!.status).toBe("PENDING");
+
+  const actions = (
+    await db().auditEvent.findMany({
+      where: { subjectType: "ApprovalRequest", subjectId: id },
+    })
+  ).map((a) => a.action);
+  expect(actions).toContain("approval.step_rejected");
+  expect(actions).toContain("approval.request_resolved");
+
+  // Step 2 can never be decided — the request is no longer pending.
+  await expect(
+    decide({
+      stepId: step2Id,
+      actor: await seedActor(["BUSINESS_APPROVER"]),
+      decision: "APPROVED",
+      reason: "too late",
+    }),
+  ).rejects.toBeInstanceOf(ConflictError);
+});
+
+test("recording a decision on a non-current step → ConflictError", async () => {
+  const owner = await seedActor(["DEVELOPER"]);
+  const business = await seedActor(["BUSINESS_APPROVER"]);
+  const subjectId = rand();
+
+  const { id } = await open(highRiskInput(owner.id, subjectId));
+  const step2Id = (
+    await db().approvalStep.findFirstOrThrow({
+      where: { requestId: id, order: 2 },
+    })
+  ).id;
+
+  await expect(
+    decide({
+      stepId: step2Id,
+      actor: business,
+      decision: "APPROVED",
+      reason: "jumping the queue",
+    }),
+  ).rejects.toBeInstanceOf(ConflictError);
+});
+
+test("recording a decision on an already-resolved request → ConflictError", async () => {
+  const owner = await seedActor(["DEVELOPER"]);
+  const tech = await seedActor(["TECHNICAL_APPROVER"]);
+  const subjectId = rand();
+
+  await open(standardInput(owner.id, subjectId));
+  const stepId = await currentStepId(subjectId);
+  await decide({ stepId, actor: tech, decision: "APPROVED", reason: "ok" });
+
+  await expect(
+    decide({ stepId, actor: tech, decision: "APPROVED", reason: "again" }),
+  ).rejects.toBeInstanceOf(ConflictError);
+});
+
+test("an actor without the step's requiredHat → ForbiddenError", async () => {
+  const owner = await seedActor(["DEVELOPER"]);
+  const nobody = await seedActor(["DEVELOPER"]);
+  const subjectId = rand();
+
+  await open(standardInput(owner.id, subjectId));
+  const stepId = await currentStepId(subjectId);
+
+  await expect(
+    decide({ stepId, actor: nobody, decision: "APPROVED", reason: "no hat" }),
+  ).rejects.toBeInstanceOf(ForbiddenError);
+});
+
+test("the creator approving their own step without an override → SegregationError('change.approve.technical.override')", async () => {
+  const owner = await seedActor(["TECHNICAL_APPROVER"]);
+  const subjectId = rand();
+
+  await open(standardInput(owner.id, subjectId));
+  const stepId = await currentStepId(subjectId);
+
+  await expect(
+    decide({ stepId, actor: owner, decision: "APPROVED", reason: "mine" }),
+  ).rejects.toMatchObject({
+    overrideAction: "change.approve.technical.override",
+  });
+});
+
+test("the creator with a <20-char justification → still SegregationError (treated as no override)", async () => {
+  const owner = await seedActor(["TECHNICAL_APPROVER"]);
+  const subjectId = rand();
+
+  await open(standardInput(owner.id, subjectId));
+  const stepId = await currentStepId(subjectId);
+
+  await expect(
+    decide({
+      stepId,
+      actor: owner,
+      decision: "APPROVED",
+      reason: "mine",
+      overrideJustification: "too short",
+    }),
+  ).rejects.toMatchObject({
+    overrideAction: "change.approve.technical.override",
+  });
+});
+
+test("the creator with a >=20-char justification → decision recorded, isSingleApproverOverride true, approval.override AND approval.step_approved both audited, all internal users notified", async () => {
+  const owner = await seedActor(["TECHNICAL_APPROVER"]);
+  const other = await seedActor([]);
+  const subjectId = rand();
+
+  const { id } = await open(standardInput(owner.id, subjectId));
+  const stepId = await currentStepId(subjectId);
+
+  const justification = "I am the sole technical approver available this week";
+  const result = await decide({
+    stepId,
+    actor: owner,
+    decision: "APPROVED",
+    reason: "self-approved",
+    overrideJustification: justification,
+  });
+  expect(result).toEqual({ requestStatus: "APPROVED" });
+
+  const decision = await db().approvalDecision.findFirstOrThrow({
+    where: { stepId },
+  });
+  expect(decision.isSingleApproverOverride).toBe(true);
+  expect(decision.overrideJustification).toBe(justification);
+
+  const audit = await db().auditEvent.findMany({
+    where: { subjectType: "ApprovalRequest", subjectId: id },
+  });
+  const byAction = new Map(audit.map((a) => [a.action, a]));
+  expect(byAction.has("approval.step_approved")).toBe(true);
+  expect(byAction.has("approval.request_resolved")).toBe(true);
+  expect(byAction.get("approval.override")!.payload).toMatchObject({
+    stepOrder: 1,
+    justification,
+    createdById: owner.id,
+    actorId: owner.id,
+  });
+
+  // The override transparency notice fans out to every other internal user.
+  const overrideNotes = await db().notification.findMany({
+    where: { subjectId: id, kind: "STATUS_CHANGED" },
+  });
+  const recipients = overrideNotes.map((n) => n.userId);
+  expect(recipients).toContain(other.id);
+  // The actor is never notified of the override they used. (The creator — here
+  // the same person — still gets the separate "request resolved" notice.)
+  const overrideOnly = overrideNotes.filter(
+    (n) =>
+      (n.payload as { summary?: string }).summary ===
+      "A change approval used a single-approver override",
+  );
+  expect(overrideOnly.map((n) => n.userId)).not.toContain(owner.id);
+});
+
+test("recordDecision writes ApprovalDecision with .create only (row is immutable for keel_app)", async () => {
+  const owner = await seedActor(["DEVELOPER"]);
+  const tech = await seedActor(["TECHNICAL_APPROVER"]);
+  const subjectId = rand();
+
+  await open(standardInput(owner.id, subjectId));
+  const stepId = await currentStepId(subjectId);
+  await decide({ stepId, actor: tech, decision: "APPROVED", reason: "ok" });
+
+  // A second decision on the now-resolved step is rejected — there is no update
+  // path — so exactly one row exists.
+  await expect(
+    decide({ stepId, actor: tech, decision: "REJECTED", reason: "flip" }),
+  ).rejects.toBeInstanceOf(ConflictError);
+
+  expect(await db().approvalDecision.count({ where: { stepId } })).toBe(1);
 });

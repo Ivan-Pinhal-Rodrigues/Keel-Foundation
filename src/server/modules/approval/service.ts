@@ -3,7 +3,13 @@ import { writeAudit } from "@/server/audit/write";
 import { prisma } from "@/server/db/client";
 import type { PrismaTransaction } from "@/server/db/tx";
 import { emitNotification } from "@/server/modules/notify/emit";
-import { currentStep } from "./state";
+import type { Actor } from "@/server/policy/actor";
+import {
+  ConflictError,
+  ForbiddenError,
+  SegregationError,
+} from "@/server/policy/errors";
+import { currentStep, overrideActionFor, resolveRequestStatus } from "./state";
 
 /**
  * The approval engine's open / read / cancel use cases (spec 04 §3, §7).
@@ -211,4 +217,176 @@ export async function cancelRequest(
     subjectId: request.id,
     payload: { reason: input.reason },
   });
+}
+
+export type RecordDecisionInput = {
+  stepId: string;
+  actor: Actor;
+  decision: $Enums.DecisionKind; // "APPROVED" | "REJECTED"
+  /** Required, non-empty; the route schema enforces min 1, the service re-trims. */
+  reason: string;
+  /** Required (min 20 trimmed chars) only when SoD would otherwise block. */
+  overrideJustification?: string;
+};
+
+/**
+ * Record the decision on an approval request's current step — the engine's only
+ * decision mutation (spec 04 §4, §5). Runs on the caller's `tx` so the
+ * `ApprovalDecision`, the step / request updates, their `AuditEvent`s, and any
+ * notification commit or roll back together.
+ *
+ * `ApprovalDecision` is a record-of-fact table (INSERT + SELECT only for the
+ * runtime role), so this only ever `tx.approvalDecision.create(...)`s a row —
+ * never `.update` / `.upsert`. A decided step is resolved and can never come up
+ * for decision again, so there is no real update path.
+ *
+ * Enforcement order (spec 04 §5):
+ *   1. the step exists and is the current pending step of a pending request —
+ *      else `ConflictError`;
+ *   2. the actor holds the step's `requiredHat` — else `ForbiddenError`;
+ *   3. SoD — the creator deciding their own request needs a >= 20-char
+ *      `overrideJustification`, else `SegregationError(overrideActionFor(hat))`;
+ *      with one, the decision is flagged `isSingleApproverOverride` and a second
+ *      `approval.override` audit event is written.
+ *
+ * Returns the request's status after this decision: `"PENDING"` while steps
+ * remain, otherwise the resolved value.
+ */
+export async function recordDecision(
+  tx: PrismaTransaction,
+  input: RecordDecisionInput,
+): Promise<{ requestStatus: $Enums.ApprovalStatus }> {
+  const step = await tx.approvalStep.findUnique({
+    where: { id: input.stepId },
+    include: { request: { include: { steps: true } } },
+  });
+  if (!step) throw new ConflictError("the approval step does not exist");
+
+  const request = step.request;
+  if (request.status !== "PENDING") {
+    throw new ConflictError("the approval request is no longer pending");
+  }
+  if (currentStep(request.steps)?.id !== step.id) {
+    throw new ConflictError("this step is not awaiting a decision");
+  }
+
+  if (!input.actor.hats.includes(step.requiredHat)) {
+    throw new ForbiddenError(
+      "the actor does not hold this step's required hat",
+    );
+  }
+
+  const isCreator = input.actor.id === request.createdById;
+  const override =
+    typeof input.overrideJustification === "string" &&
+    input.overrideJustification.trim().length >= 20;
+  const singleApproverOverride = isCreator && override;
+  if (isCreator && !override) {
+    throw new SegregationError(overrideActionFor(step.requiredHat));
+  }
+
+  const reason = input.reason.trim();
+  const justification = singleApproverOverride
+    ? input.overrideJustification!.trim()
+    : null;
+
+  await tx.approvalDecision.create({
+    data: {
+      stepId: step.id,
+      actorId: input.actor.id,
+      decision: input.decision,
+      reason,
+      isSingleApproverOverride: singleApproverOverride,
+      overrideJustification: justification,
+    },
+  });
+
+  const now = new Date();
+  const nextStepStatus: $Enums.StepStatus =
+    input.decision === "APPROVED" ? "APPROVED" : "REJECTED";
+  await tx.approvalStep.update({
+    where: { id: step.id },
+    data: { status: nextStepStatus, resolvedAt: now },
+  });
+
+  // Patch this step's new status into the in-memory sibling list to recompute.
+  const nextSteps = request.steps.map((s) =>
+    s.id === step.id ? { ...s, status: nextStepStatus } : s,
+  );
+  const requestStatus = resolveRequestStatus(nextSteps);
+  if (requestStatus !== "PENDING") {
+    await tx.approvalRequest.update({
+      where: { id: request.id },
+      data: { status: requestStatus, resolvedAt: now },
+    });
+  }
+
+  // Audit — all on the consumer's `requestId`, subject "ApprovalRequest".
+  await writeAudit(tx, {
+    actorId: input.actor.id,
+    action:
+      input.decision === "APPROVED"
+        ? "approval.step_approved"
+        : "approval.step_rejected",
+    subjectType: "ApprovalRequest",
+    subjectId: request.id,
+    payload: { stepOrder: step.order, reason },
+  });
+  if (singleApproverOverride) {
+    await writeAudit(tx, {
+      actorId: input.actor.id,
+      action: "approval.override",
+      subjectType: "ApprovalRequest",
+      subjectId: request.id,
+      payload: {
+        stepOrder: step.order,
+        justification,
+        createdById: request.createdById,
+        actorId: input.actor.id,
+      },
+    });
+  }
+  if (requestStatus !== "PENDING") {
+    await writeAudit(tx, {
+      actorId: input.actor.id,
+      action: "approval.request_resolved",
+      subjectType: "ApprovalRequest",
+      subjectId: request.id,
+      payload: { status: requestStatus },
+    });
+  }
+
+  // Notify.
+  const nextStep = currentStep(nextSteps);
+  if (input.decision === "APPROVED" && nextStep) {
+    await emitNotification(tx, {
+      recipients: { hat: nextStep.requiredHat },
+      kind: "APPROVAL_NEEDED",
+      subjectType: "ApprovalRequest",
+      subjectId: request.id,
+      summary: `Approval needed on ${request.subjectType} ${request.subjectId}`,
+      excludeActorId: request.createdById,
+    });
+  }
+  if (requestStatus !== "PENDING") {
+    await emitNotification(tx, {
+      recipients: { userIds: [request.createdById] },
+      kind: "STATUS_CHANGED",
+      subjectType: "ApprovalRequest",
+      subjectId: request.id,
+      summary: `Approval ${requestStatus.toLowerCase()} on ${request.subjectType} ${request.subjectId}`,
+    });
+  }
+  if (singleApproverOverride) {
+    await emitNotification(tx, {
+      recipients: { audience: "ALL_INTERNAL" },
+      kind: "STATUS_CHANGED",
+      subjectType: "ApprovalRequest",
+      subjectId: request.id,
+      summary: "A change approval used a single-approver override",
+      excludeActorId: input.actor.id,
+    });
+  }
+
+  return { requestStatus };
 }
