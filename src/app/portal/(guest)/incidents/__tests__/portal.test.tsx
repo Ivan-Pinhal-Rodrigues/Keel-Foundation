@@ -72,6 +72,7 @@ test("detail for an in-progress incident shows the plain-word status, the SLA li
   apiFetchMock.mockResolvedValue({ comments: [] });
 
   const incident = {
+    // Real guest-serialized fields.
     id: "i1",
     ref: "INC-0001",
     title: "Checkout is down",
@@ -81,6 +82,15 @@ test("detail for an in-progress incident shows the plain-word status, the SLA li
     slaLine: "Response due in 3h",
     fix: null,
     activity: [{ time: "2026-09-01 09:00", text: "Problem reported" }],
+    // Internal-only keys that must NEVER reach the guest DOM. If a future edit
+    // rendered `{incident.priority}` (etc.) the assertions below would fail.
+    priority: "P1",
+    assigneeId: "u5",
+    impact: "HIGH",
+    urgency: "HIGH",
+    reportedById: "g9",
+    overdue: true,
+    rawStatus: "IN_PROGRESS",
   };
 
   const { container } = render(<PortalIncidentDetail incident={incident} />);
@@ -92,10 +102,17 @@ test("detail for an in-progress incident shows the plain-word status, the SLA li
   expect(await screen.findByLabelText("Add a message")).toBeTruthy();
 
   const dom = container.innerHTML;
-  expect(dom).not.toContain("IN_PROGRESS");
-  expect(dom).not.toContain("assigneeId");
-  expect(dom).not.toContain("P1");
-  expect(dom).not.toContain("RESOLVED");
+  for (const forbidden of [
+    "P1",
+    "assigneeId",
+    "u5",
+    "IN_PROGRESS",
+    "reportedById",
+    "g9",
+    "HIGH",
+  ]) {
+    expect(dom).not.toContain(forbidden);
+  }
 });
 
 test("detail shows 'A fix is on the way' when fix is on_the_way", () => {
@@ -115,6 +132,26 @@ test("detail shows 'A fix is on the way' when fix is on_the_way", () => {
 
   render(<PortalIncidentDetail incident={incident} />);
   expect(screen.getByText("A fix is on the way")).toBeTruthy();
+});
+
+test("detail shows 'This has been fixed' when fix is fixed", () => {
+  apiFetchMock.mockResolvedValue({ comments: [] });
+
+  const incident = {
+    id: "i1",
+    ref: "INC-0001",
+    title: "Checkout is down",
+    description: "Customers cannot pay.",
+    affectedService: "Storefront",
+    status: "Resolved",
+    slaLine: "Resolved within SLA",
+    fix: "fixed",
+    activity: [],
+  };
+
+  render(<PortalIncidentDetail incident={incident} />);
+  expect(screen.getByText("This has been fixed")).toBeTruthy();
+  expect(screen.queryByText("A fix is on the way")).toBeNull();
 });
 
 test("the report form posts the four guest fields to /api/incidents and routes to the list on success", async () => {
