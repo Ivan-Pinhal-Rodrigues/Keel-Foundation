@@ -11,8 +11,8 @@ import { authorize } from "@/server/policy/authorize";
 import { ForbiddenError, NotFoundError } from "@/server/policy/errors";
 import { assertVisibleToGuest, scopeToClient } from "@/server/policy/scope";
 import { dueAtFrom, priorityFor } from "./priority";
-import { serializeIncident } from "./serialize";
-import { assertTransition } from "./state";
+import { guestIncidentStatusLabel, serializeIncident } from "./serialize";
+import { REOPEN_WINDOW_MS, assertTransition } from "./state";
 
 /**
  * The incident use cases: create (internal + guest), list, get, and the linked
@@ -371,5 +371,157 @@ export async function assignIncident(
     subjectId: id,
     summary: `You were assigned ${row.ref}: ${row.title}`,
     excludeActorId: actor.id,
+  });
+}
+
+/**
+ * The work transitions (`plans/plan-02-incident.md` Task 6). `transitionIncident`
+ * drives `ASSIGNED → IN_PROGRESS`, `IN_PROGRESS → RESOLVED` (a non-empty
+ * `resolution` is required; `resolvedAt` stamped), and `RESOLVED → CLOSED`
+ * (`closedAt` stamped). `reopenIncident` drives `RESOLVED → IN_PROGRESS` (any
+ * time) and `CLOSED → IN_PROGRESS` (only within `REOPEN_WINDOW_MS` of
+ * `closedAt`), clearing `resolvedAt` / `closedAt`. Each takes the caller's `tx`
+ * so the row, its `AuditEvent`, and the notifications commit or roll back
+ * together — gated before the load, uniformly with the rest of the module.
+ */
+
+type StatusChangeRow = {
+  id: string;
+  ref: string;
+  title: string;
+  reportedById: string;
+  assigneeId: string | null;
+};
+
+/**
+ * Notify the reporter (always) and the assignee (when set, and neither the
+ * reporter nor the acting user) that an incident's status moved. A guest
+ * reporter also gets the guest-safe `incident_status` email carrying the
+ * already-rendered plain-word status.
+ */
+async function notifyReporterAndAssignee(
+  tx: PrismaTransaction,
+  args: { row: StatusChangeRow; actorId: string; guestStatus: string },
+): Promise<void> {
+  const { row } = args;
+  const summary = `${row.ref} status updated: ${args.guestStatus}`;
+
+  const reporter = await tx.user.findUnique({
+    where: { id: row.reportedById },
+    select: { kind: true },
+  });
+  await emitNotification(tx, {
+    recipients: { userIds: [row.reportedById] },
+    kind: "STATUS_CHANGED",
+    subjectType: "Incident",
+    subjectId: row.id,
+    summary,
+    email:
+      reporter?.kind === "GUEST"
+        ? {
+            template: "incident_status",
+            payload: { ref: row.ref, status: args.guestStatus },
+          }
+        : undefined,
+  });
+
+  if (
+    row.assigneeId &&
+    row.assigneeId !== row.reportedById &&
+    row.assigneeId !== args.actorId
+  ) {
+    await emitNotification(tx, {
+      recipients: { userIds: [row.assigneeId] },
+      kind: "STATUS_CHANGED",
+      subjectType: "Incident",
+      subjectId: row.id,
+      summary,
+    });
+  }
+}
+
+export async function transitionIncident(
+  actor: Actor,
+  tx: PrismaTransaction,
+  id: string,
+  input: { to: "IN_PROGRESS" | "RESOLVED" | "CLOSED"; resolution?: string },
+): Promise<void> {
+  authorize(actor, "incident.transition", { type: "incident", id });
+  const row = await loadIncidentOr404(tx, id);
+  assertTransition(row.status, input.to);
+
+  const now = new Date();
+  const data: Prisma.IncidentUpdateInput = { status: input.to };
+  let action: string;
+  let payload: Record<string, unknown>;
+
+  if (input.to === "RESOLVED") {
+    const resolution = input.resolution?.trim();
+    if (!resolution) {
+      throw new ForbiddenError(
+        "a resolution is required to resolve an incident",
+      );
+    }
+    data.resolution = resolution;
+    data.resolvedAt = now;
+    action = "incident.resolved";
+    payload = { resolution };
+  } else if (input.to === "CLOSED") {
+    data.closedAt = now;
+    action = "incident.closed";
+    payload = {};
+  } else {
+    action = "incident.transitioned";
+    payload = { from: row.status, to: input.to };
+  }
+
+  await tx.incident.update({ where: { id }, data });
+  await writeAudit(tx, {
+    actorId: actor.id,
+    action,
+    subjectType: "Incident",
+    subjectId: id,
+    payload,
+  });
+  await notifyReporterAndAssignee(tx, {
+    row,
+    actorId: actor.id,
+    guestStatus: guestIncidentStatusLabel(input.to),
+  });
+}
+
+export async function reopenIncident(
+  actor: Actor,
+  tx: PrismaTransaction,
+  id: string,
+  input: { reason: string },
+): Promise<void> {
+  authorize(actor, "incident.transition", { type: "incident", id });
+  const row = await loadIncidentOr404(tx, id);
+  // Legal only from RESOLVED or CLOSED (`state.ts`).
+  assertTransition(row.status, "IN_PROGRESS");
+
+  if (row.status === "CLOSED") {
+    const closedMs = row.closedAt?.getTime() ?? 0;
+    if (Date.now() - closedMs > REOPEN_WINDOW_MS) {
+      throw new ForbiddenError("the reopen window has closed");
+    }
+  }
+
+  await tx.incident.update({
+    where: { id },
+    data: { status: "IN_PROGRESS", resolvedAt: null, closedAt: null },
+  });
+  await writeAudit(tx, {
+    actorId: actor.id,
+    action: "incident.reopened",
+    subjectType: "Incident",
+    subjectId: id,
+    payload: { from: row.status, reason: input.reason.trim() },
+  });
+  await notifyReporterAndAssignee(tx, {
+    row,
+    actorId: actor.id,
+    guestStatus: guestIncidentStatusLabel("IN_PROGRESS"),
   });
 }

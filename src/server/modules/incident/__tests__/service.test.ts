@@ -8,6 +8,8 @@ import {
   createIncident,
   getIncidentForActor,
   listIncidents,
+  reopenIncident,
+  transitionIncident,
 } from "@/server/modules/incident/service";
 import type { Actor, Hat } from "@/server/policy/actor";
 import { ForbiddenError, NotFoundError } from "@/server/policy/errors";
@@ -450,4 +452,208 @@ test("re-assign while ASSIGNED keeps the status and re-notifies the new assignee
   expect(audit).toHaveLength(1);
   expect(audit[0]!.payload).toMatchObject({ assigneeId: second.id });
   expect(audit[0]!.payload).not.toHaveProperty("from");
+});
+
+test("ASSIGNED → IN_PROGRESS → RESOLVED (with resolution) → CLOSED: each transition audited, guest reporter notified + emailed", async () => {
+  const dev = await seedInternal(["DEVELOPER"]);
+  const { guest, guestActor } = await seedClientAndGuest();
+
+  const inc = await ctx(() =>
+    db().$transaction((tx) =>
+      createIncident(guestActor, tx, {
+        kind: "GUEST",
+        title: "cannot log in",
+        description: "d",
+        affectedService: "portal",
+        affectingLevel: "whole team",
+      }),
+    ),
+  );
+  await ctx(() =>
+    db().$transaction((tx) =>
+      assignIncident(dev.actor, tx, inc.id, { assigneeId: dev.id }),
+    ),
+  );
+
+  await ctx(() =>
+    db().$transaction((tx) =>
+      transitionIncident(dev.actor, tx, inc.id, { to: "IN_PROGRESS" }),
+    ),
+  );
+  await ctx(() =>
+    db().$transaction((tx) =>
+      transitionIncident(dev.actor, tx, inc.id, {
+        to: "RESOLVED",
+        resolution: "restarted the auth service",
+      }),
+    ),
+  );
+  await ctx(() =>
+    db().$transaction((tx) =>
+      transitionIncident(dev.actor, tx, inc.id, { to: "CLOSED" }),
+    ),
+  );
+
+  const row = await db().incident.findUniqueOrThrow({ where: { id: inc.id } });
+  expect(row.status).toBe("CLOSED");
+  expect(row.resolution).toBe("restarted the auth service");
+  expect(row.resolvedAt).not.toBeNull();
+  expect(row.closedAt).not.toBeNull();
+
+  const transitioned = await db().auditEvent.findMany({
+    where: { subjectId: inc.id, action: "incident.transitioned" },
+  });
+  expect(transitioned).toHaveLength(1);
+  expect(transitioned[0]!.payload).toMatchObject({
+    from: "ASSIGNED",
+    to: "IN_PROGRESS",
+  });
+  const resolved = await db().auditEvent.findMany({
+    where: { subjectId: inc.id, action: "incident.resolved" },
+  });
+  expect(resolved).toHaveLength(1);
+  expect(resolved[0]!.payload).toMatchObject({
+    resolution: "restarted the auth service",
+  });
+  expect(
+    await db().auditEvent.findMany({
+      where: { subjectId: inc.id, action: "incident.closed" },
+    }),
+  ).toHaveLength(1);
+
+  const notes = await db().notification.findMany({
+    where: { subjectId: inc.id, kind: "STATUS_CHANGED", userId: guest.id },
+  });
+  expect(notes).toHaveLength(3);
+
+  const outbox = await db().emailOutbox.findMany({
+    where: { toEmail: guest.email, template: "incident_status" },
+  });
+  expect(outbox).toHaveLength(3);
+  expect(outbox.map((o) => (o.payload as { status: string }).status)).toEqual(
+    expect.arrayContaining(["Investigating", "Resolved", "Closed"]),
+  );
+});
+
+test("RESOLVED without resolution text is rejected", async () => {
+  const dev = await seedInternal(["DEVELOPER"]);
+  const inc = await seedIncident(dev.id, { status: "IN_PROGRESS" });
+
+  await expect(
+    ctx(() =>
+      db().$transaction((tx) =>
+        transitionIncident(dev.actor, tx, inc.id, { to: "RESOLVED" }),
+      ),
+    ),
+  ).rejects.toBeInstanceOf(ForbiddenError);
+
+  const row = await db().incident.findUniqueOrThrow({ where: { id: inc.id } });
+  expect(row.status).toBe("IN_PROGRESS");
+});
+
+test("CLOSED only from RESOLVED", async () => {
+  const dev = await seedInternal(["DEVELOPER"]);
+  const inc = await seedIncident(dev.id, { status: "IN_PROGRESS" });
+
+  await expect(
+    ctx(() =>
+      db().$transaction((tx) =>
+        transitionIncident(dev.actor, tx, inc.id, { to: "CLOSED" }),
+      ),
+    ),
+  ).rejects.toBeInstanceOf(ForbiddenError);
+});
+
+test("reopen from RESOLVED → IN_PROGRESS any time; clears resolvedAt/closedAt; incident.reopened audited", async () => {
+  const dev = await seedInternal(["DEVELOPER"]);
+  const inc = await seedIncident(dev.id, { status: "RESOLVED" });
+  await db().incident.update({
+    where: { id: inc.id },
+    data: {
+      resolution: "was a config typo",
+      resolvedAt: new Date("2026-01-02T00:00:00.000Z"),
+    },
+  });
+
+  await ctx(() =>
+    db().$transaction((tx) =>
+      reopenIncident(dev.actor, tx, inc.id, { reason: "regression reported" }),
+    ),
+  );
+
+  const row = await db().incident.findUniqueOrThrow({ where: { id: inc.id } });
+  expect(row.status).toBe("IN_PROGRESS");
+  expect(row.resolvedAt).toBeNull();
+  expect(row.closedAt).toBeNull();
+
+  const audit = await db().auditEvent.findMany({
+    where: { subjectId: inc.id, action: "incident.reopened" },
+  });
+  expect(audit).toHaveLength(1);
+  expect(audit[0]!.payload).toMatchObject({
+    from: "RESOLVED",
+    reason: "regression reported",
+  });
+});
+
+test("reopen from CLOSED within 14 days works; past 14 days → ForbiddenError", async () => {
+  const dev = await seedInternal(["DEVELOPER"]);
+
+  const fresh = await seedIncident(dev.id, { status: "CLOSED" });
+  await db().incident.update({
+    where: { id: fresh.id },
+    data: { closedAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000) },
+  });
+  await ctx(() =>
+    db().$transaction((tx) =>
+      reopenIncident(dev.actor, tx, fresh.id, { reason: "still broken" }),
+    ),
+  );
+  expect(
+    (await db().incident.findUniqueOrThrow({ where: { id: fresh.id } })).status,
+  ).toBe("IN_PROGRESS");
+
+  const stale = await seedIncident(dev.id, { status: "CLOSED" });
+  await db().incident.update({
+    where: { id: stale.id },
+    data: { closedAt: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000) },
+  });
+  await expect(
+    ctx(() =>
+      db().$transaction((tx) =>
+        reopenIncident(dev.actor, tx, stale.id, { reason: "too late now" }),
+      ),
+    ),
+  ).rejects.toBeInstanceOf(ForbiddenError);
+  expect(
+    (await db().incident.findUniqueOrThrow({ where: { id: stale.id } })).status,
+  ).toBe("CLOSED");
+});
+
+test("a guest cannot transition or reopen (ForbiddenError)", async () => {
+  const dev = await seedInternal(["DEVELOPER"]);
+  const { guestActor } = await seedClientAndGuest();
+  const inc = await seedIncident(dev.id, { status: "IN_PROGRESS" });
+
+  await expect(
+    ctx(() =>
+      db().$transaction((tx) =>
+        transitionIncident(guestActor, tx, inc.id, {
+          to: "RESOLVED",
+          resolution: "x",
+        }),
+      ),
+    ),
+  ).rejects.toBeInstanceOf(ForbiddenError);
+
+  await expect(
+    ctx(() =>
+      db().$transaction((tx) =>
+        reopenIncident(guestActor, tx, inc.id, { reason: "let me in" }),
+      ),
+    ),
+  ).rejects.toBeInstanceOf(ForbiddenError);
+
+  const row = await db().incident.findUniqueOrThrow({ where: { id: inc.id } });
+  expect(row.status).toBe("IN_PROGRESS");
 });

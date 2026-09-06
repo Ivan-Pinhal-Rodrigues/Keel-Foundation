@@ -6,30 +6,41 @@ import * as worker from "@/server/modules/notify/worker";
  * test resets both guard globals up front and tears any real interval down
  * after, keeping the file order-independent and letting the suite exit cleanly.
  */
-type Guards = { __keelBooted?: boolean; __keelOutbox?: NodeJS.Timeout };
+type Guards = {
+  __keelBooted?: boolean;
+  __keelOutbox?: NodeJS.Timeout;
+  __keelOverdueSweeper?: NodeJS.Timeout;
+};
 
 beforeEach(() => {
   const g = globalThis as Guards;
   delete g.__keelBooted;
   delete g.__keelOutbox;
+  delete g.__keelOverdueSweeper;
 });
 
 afterEach(() => {
   const g = globalThis as Guards;
   if (g.__keelOutbox) clearInterval(g.__keelOutbox);
+  if (g.__keelOverdueSweeper) clearInterval(g.__keelOverdueSweeper);
   delete g.__keelOutbox;
+  delete g.__keelOverdueSweeper;
   delete g.__keelBooted;
   vi.restoreAllMocks();
 });
 
-test("bootstrap starts the worker exactly once across repeated calls", async () => {
+test("bootstrap starts each poller exactly once across repeated calls", async () => {
   const spy = vi.spyOn(globalThis, "setInterval");
   const { bootstrap } = await import("@/server/bootstrap");
 
   bootstrap();
+  const afterFirst = spy.mock.calls.length;
   bootstrap();
 
-  expect(spy).toHaveBeenCalledTimes(1);
+  // One interval per poller (outbox worker + overdue sweeper); a second
+  // bootstrap() adds none.
+  expect(afterFirst).toBe(2);
+  expect(spy).toHaveBeenCalledTimes(afterFirst);
 });
 
 test("bootstrap's own guard blocks a second startOutboxWorker call", async () => {

@@ -1,4 +1,5 @@
 import { logger } from "@/server/log";
+import { startOverdueSweeper } from "@/server/modules/incident/sweep";
 import { startOutboxWorker } from "@/server/modules/notify/worker";
 
 /**
@@ -14,5 +15,6 @@ export function bootstrap(): void {
   if (g.__keelBooted) return;
   g.__keelBooted = true;
   startOutboxWorker();
+  startOverdueSweeper();
   logger.info("keel bootstrap complete");
 }
