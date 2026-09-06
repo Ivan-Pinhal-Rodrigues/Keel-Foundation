@@ -205,6 +205,8 @@ test("listChanges ?mine and ?scheduled filters (internal)", async () => {
 
   const mineList = await listChanges(dev.actor, { mine: true }, db());
   expect(mineList.map((c) => c.id)).toEqual([mine.id]);
+  // The register needs an owner display name, not just the id (spec 03 §8.1).
+  expect(mineList[0]).toHaveProperty("ownerName", "I");
 
   const scheduledList = await listChanges(dev.actor, { scheduled: true }, db());
   expect(scheduledList.map((c) => c.id)).toEqual([theirs.id]);

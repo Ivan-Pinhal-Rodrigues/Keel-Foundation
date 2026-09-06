@@ -45,6 +45,7 @@ const rows = [
     windowStart: null,
     windowEnd: null,
     ownerId: "u1",
+    ownerName: "Ada Lovelace",
   },
   {
     id: "c2",
@@ -57,6 +58,7 @@ const rows = [
     windowStart: new Date(Date.now() + 3_600_000).toISOString(),
     windowEnd: new Date(Date.now() + 7_200_000).toISOString(),
     ownerId: "u9",
+    ownerName: "Grace Hopper",
   },
   {
     id: "c3",
@@ -69,6 +71,7 @@ const rows = [
     windowStart: null,
     windowEnd: null,
     ownerId: "u1",
+    ownerName: "Ada Lovelace",
   },
 ];
 
@@ -85,6 +88,13 @@ test("renders a row per change with its ref, title, and risk label", () => {
   expect(screen.getByText("Swap the load balancer")).toBeTruthy();
   expect(screen.getByText("HIGH")).toBeTruthy();
   expect(screen.getByText("MEDIUM")).toBeTruthy();
+});
+
+test("renders the owner column (spec 03 §8.1)", () => {
+  render(
+    <ChangeRegister initialRows={rows} initialFilters={{}} viewer={viewer} />,
+  );
+  expect(screen.getByText("Grace Hopper")).toBeTruthy();
 });
 
 test("the lifecycle pips mark the current stage of a mid-lifecycle change", () => {

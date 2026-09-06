@@ -37,6 +37,7 @@ export type ChangeRow = {
   windowStart: string | null;
   windowEnd: string | null;
   ownerId: string;
+  ownerName: string | null;
 };
 
 export type RegisterFilters = {
@@ -233,6 +234,17 @@ export function ChangeRegister({
           {formatWindow(r.windowStart, r.windowEnd)}
         </span>
       ),
+    },
+    {
+      key: "owner",
+      header: "Owner",
+      width: "128px",
+      cell: (r) =>
+        r.ownerName ? (
+          <span className={styles.owner}>{r.ownerName}</span>
+        ) : (
+          <span className={styles.muted}>—</span>
+        ),
     },
   ];
 

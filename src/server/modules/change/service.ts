@@ -47,6 +47,7 @@ const DETAIL_INCLUDE = {
 
 const LIST_INCLUDE = {
   originatingDemand: { select: { ref: true } },
+  owner: { select: { displayName: true } },
 } as const;
 
 export type CreateChangeInput = {

@@ -46,6 +46,7 @@ function toRow(r: Record<string, unknown>): ChangeRow {
     windowStart: toIso(r.windowStart),
     windowEnd: toIso(r.windowEnd),
     ownerId: String(r.ownerId),
+    ownerName: (r.ownerName as string | null | undefined) ?? null,
   };
 }
 

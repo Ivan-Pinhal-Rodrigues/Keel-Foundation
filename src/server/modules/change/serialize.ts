@@ -187,6 +187,7 @@ export function serializeChangeListItem(row: {
   windowStart: Date | null;
   windowEnd: Date | null;
   originatingDemand: { ref: string } | null;
+  owner: { displayName: string } | null;
 }): Record<string, unknown> {
   return {
     id: row.id,
@@ -200,5 +201,6 @@ export function serializeChangeListItem(row: {
     windowStart: row.windowStart,
     windowEnd: row.windowEnd,
     ownerId: row.ownerId,
+    ownerName: row.owner?.displayName ?? null,
   };
 }
