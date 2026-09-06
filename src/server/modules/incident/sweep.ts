@@ -25,8 +25,6 @@ import { emitNotification } from "@/server/modules/notify/emit";
  * honoured end to end.
  */
 
-const OVERDUE_POLL_MS = Number(process.env.OVERDUE_POLL_MS ?? 60_000);
-
 export async function sweepOverdueIncidents(deps?: {
   now?: () => Date;
   db?: PrismaClient;
@@ -34,8 +32,13 @@ export async function sweepOverdueIncidents(deps?: {
   const db = deps?.db ?? prisma;
   const now = deps?.now?.() ?? new Date();
 
+  // Clear the stored flag for anything no longer overdue: terminal now, or
+  // re-categorised so `dueAt` has moved back into the future.
   const cleared = await db.incident.updateMany({
-    where: { overdue: true, status: { in: ["RESOLVED", "CLOSED"] } },
+    where: {
+      overdue: true,
+      OR: [{ status: { in: ["RESOLVED", "CLOSED"] } }, { dueAt: { gte: now } }],
+    },
     data: { overdue: false },
   });
 
@@ -85,6 +88,7 @@ export async function sweepOverdueIncidents(deps?: {
 export function startOverdueSweeper(): void {
   const g = globalThis as unknown as { __keelOverdueSweeper?: NodeJS.Timeout };
   if (g.__keelOverdueSweeper) return;
+  const OVERDUE_POLL_MS = Number(process.env.OVERDUE_POLL_MS ?? 60_000);
   g.__keelOverdueSweeper = setInterval(() => {
     sweepOverdueIncidents().catch((e) =>
       logger.error({ err: e }, "overdue sweep failed"),

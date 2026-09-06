@@ -95,6 +95,20 @@ test("guest fix line follows a FIXES link's change status", () => {
   expect(causedOnly.fix).toBeNull();
 });
 
+test("guestSlaLine: a terminal incident with no resolvedAt reads neutral, never 'overdue'", () => {
+  const line = guestSlaLine(
+    {
+      createdAt: new Date("2026-09-06T06:00:00.000Z"),
+      dueAt: new Date("2026-09-06T08:00:00.000Z"), // long past
+      status: "CLOSED",
+      resolvedAt: null,
+    },
+    now,
+  );
+  expect(line).toBe("Resolved");
+  expect(line).not.toMatch(/overdue/i);
+});
+
 test("guestIncidentStatusLabel maps every state (spec section 6)", () => {
   expect(guestIncidentStatusLabel("NEW")).toBe("Reported");
   expect(guestIncidentStatusLabel("ASSIGNED")).toBe("Reported");

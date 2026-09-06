@@ -1,9 +1,14 @@
 import { expect, test } from "vitest";
+import { runWithContext } from "@/server/context";
+import { reopenIncident } from "@/server/modules/incident/service";
 import { sweepOverdueIncidents } from "@/server/modules/incident/sweep";
+import type { Actor } from "@/server/policy/actor";
 import { withTestDb } from "@/test/db";
 
 const db = withTestDb();
 const rand = () => Math.random().toString(16).slice(2);
+const ctx = <T>(fn: () => Promise<T>): Promise<T> =>
+  runWithContext({ requestId: "r", actorId: "sys" }, fn);
 
 async function seedInternal(): Promise<string> {
   const user = await db().user.create({
@@ -111,6 +116,68 @@ test("sweepOverdueIncidents clears the stored overdue flag for an incident that 
       where: { subjectId: inc.id, kind: "OVERDUE" },
     }),
   ).toHaveLength(0);
+});
+
+test("clears the stored overdue flag for an incident re-categorised so dueAt is back in the future", async () => {
+  const reporter = await seedInternal();
+  const inc = await seedIncident(reporter, {
+    status: "IN_PROGRESS",
+    overdue: true,
+    overdueNotifiedAt: new Date(),
+    dueAt: new Date(Date.now() + 60 * 60 * 1000),
+  });
+
+  const res = await sweepOverdueIncidents({ db: db() });
+  expect(res.cleared).toBe(1);
+
+  const row = await db().incident.findUniqueOrThrow({ where: { id: inc.id } });
+  expect(row.overdue).toBe(false);
+});
+
+test("reopenIncident clears overdue/overdueNotifiedAt so a later sweep can re-flag a still-past-due incident", async () => {
+  const reporterId = await seedInternal();
+  const devUser = await db().user.create({
+    data: {
+      email: `dev-${rand()}@k`,
+      passwordHash: "x",
+      displayName: "D",
+      kind: "INTERNAL",
+      hats: ["DEVELOPER"],
+    },
+  });
+  const dev: Actor = {
+    id: devUser.id,
+    kind: "INTERNAL",
+    hats: ["DEVELOPER"],
+    clientId: null,
+  };
+  const inc = await seedIncident(reporterId, {
+    status: "RESOLVED",
+    overdue: true,
+    overdueNotifiedAt: new Date(),
+    dueAt: new Date(Date.now() - 60 * 60 * 1000),
+  });
+
+  await ctx(() =>
+    db().$transaction((tx) =>
+      reopenIncident(dev, tx, inc.id, { reason: "regression" }),
+    ),
+  );
+
+  const afterReopen = await db().incident.findUniqueOrThrow({
+    where: { id: inc.id },
+  });
+  expect(afterReopen.overdue).toBe(false);
+  expect(afterReopen.overdueNotifiedAt).toBeNull();
+
+  const res = await sweepOverdueIncidents({ db: db() });
+  expect(res.flagged).toBe(1);
+
+  const reflagged = await db().incident.findUniqueOrThrow({
+    where: { id: inc.id },
+  });
+  expect(reflagged.overdue).toBe(true);
+  expect(reflagged.overdueNotifiedAt).not.toBeNull();
 });
 
 test("a not-yet-due incident is untouched", async () => {

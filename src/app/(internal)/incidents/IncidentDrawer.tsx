@@ -471,7 +471,9 @@ export function IncidentDrawer({
                     value={assigneeId}
                     onChange={(e) => setAssigneeId(e.target.value)}
                   >
-                    <option value="">Unassigned</option>
+                    <option value="" disabled>
+                      Select an assignee…
+                    </option>
                     {users.map((u) => (
                       <option key={u.id} value={u.id}>
                         {u.displayName}

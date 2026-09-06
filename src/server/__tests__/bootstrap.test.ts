@@ -63,4 +63,5 @@ test("bootstrap installs a timer handle on globalThis", async () => {
   bootstrap();
 
   expect((globalThis as Guards).__keelOutbox).toBeDefined();
+  expect((globalThis as Guards).__keelOverdueSweeper).toBeDefined();
 });

@@ -1,5 +1,6 @@
 /** @vitest-environment node */
 import { beforeAll, expect, test, vi } from "vitest";
+import { GET as GET_ONE } from "@/app/api/incidents/[id]/route";
 import { GET, POST } from "@/app/api/incidents/route";
 import { type TestActor, withRouteTestDb } from "@/test/route-db";
 
@@ -11,12 +12,30 @@ const { db, asActor } = withRouteTestDb();
 let clientId = "";
 let guest: TestActor;
 let internal: TestActor;
+let foreignGuest: TestActor;
+let clientAIncidentId = "";
 
 beforeAll(async () => {
   const client = await db.client.create({
     data: { name: "Northwind Traders", isActive: true },
   });
   clientId = client.id;
+
+  const clientB = await db.client.create({
+    data: { name: "Contoso Ltd", isActive: true },
+  });
+  foreignGuest = await asActor(
+    await db.user.create({
+      data: {
+        email: "guest@contoso.example",
+        passwordHash: "x",
+        displayName: "Foreign Guest",
+        kind: "GUEST",
+        hats: [],
+        clientId: clientB.id,
+      },
+    }),
+  );
 
   guest = await asActor(
     await db.user.create({
@@ -41,6 +60,24 @@ beforeAll(async () => {
       },
     }),
   );
+
+  const clientAIncident = await db.incident.create({
+    data: {
+      ref: "INC-ROUTE-A",
+      title: "Client A only",
+      description: "d",
+      affectedService: "portal",
+      impact: "MEDIUM",
+      urgency: "MEDIUM",
+      priority: "P3",
+      status: "NEW",
+      reportedById: guest.userId,
+      clientId: client.id,
+      dueAt: new Date(Date.now() + 72 * 3600 * 1000),
+      overdue: false,
+    },
+  });
+  clientAIncidentId = clientAIncident.id;
 }, 180_000);
 
 const request = (
@@ -131,6 +168,16 @@ test("a valid internal create is 201 { id, ref }", async () => {
   const body = (await res.json()) as { id: string; ref: string };
   expect(body.id).toBeTruthy();
   expect(body.ref).toMatch(/^INC-\d{4}$/);
+});
+
+test("a guest of another client GETting this client's incident → 404 (not 403)", async () => {
+  const res = await GET_ONE(
+    new Request(`http://localhost:3000/api/incidents/${clientAIncidentId}`, {
+      headers: foreignGuest.headers,
+    }),
+    { params: Promise.resolve({ id: clientAIncidentId }) },
+  );
+  expect(res.status).toBe(404);
 });
 
 test("GET guest list rows carry none of impact / priority / assigneeId", async () => {

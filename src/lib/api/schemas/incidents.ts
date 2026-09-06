@@ -42,8 +42,17 @@ export type ReportIncidentGuestBody = z.infer<typeof reportIncidentGuestBody>;
 export const listIncidentsQuery = z.object({
   status: z.enum(STATUSES).optional(),
   priority: z.enum(PRIORITIES).optional(),
-  overdue: z.coerce.boolean().optional(),
-  mine: z.coerce.boolean().optional(),
+  // True-only semantics: `?overdue=true` filters, `?overdue=false` and an
+  // omitted param both mean "not filtered". (`z.coerce.boolean()` would treat
+  // any non-empty string, `"false"` included, as `true`.)
+  overdue: z
+    .enum(["true", "false"])
+    .optional()
+    .transform((v) => v === "true"),
+  mine: z
+    .enum(["true", "false"])
+    .optional()
+    .transform((v) => v === "true"),
 });
 export type ListIncidentsQuery = z.infer<typeof listIncidentsQuery>;
 

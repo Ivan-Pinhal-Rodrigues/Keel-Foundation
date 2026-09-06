@@ -630,6 +630,131 @@ test("reopen from CLOSED within 14 days works; past 14 days → ForbiddenError",
   ).toBe("CLOSED");
 });
 
+test("transitionIncident rejects to:IN_PROGRESS unless the incident is ASSIGNED (reopen-window bypass)", async () => {
+  const dev = await seedInternal(["DEVELOPER"]);
+
+  const resolved = await seedIncident(dev.id, { status: "RESOLVED" });
+  await expect(
+    ctx(() =>
+      db().$transaction((tx) =>
+        transitionIncident(dev.actor, tx, resolved.id, { to: "IN_PROGRESS" }),
+      ),
+    ),
+  ).rejects.toBeInstanceOf(ForbiddenError);
+  expect(
+    (await db().incident.findUniqueOrThrow({ where: { id: resolved.id } }))
+      .status,
+  ).toBe("RESOLVED");
+
+  const closed = await seedIncident(dev.id, { status: "CLOSED" });
+  await expect(
+    ctx(() =>
+      db().$transaction((tx) =>
+        transitionIncident(dev.actor, tx, closed.id, { to: "IN_PROGRESS" }),
+      ),
+    ),
+  ).rejects.toBeInstanceOf(ForbiddenError);
+  expect(
+    (await db().incident.findUniqueOrThrow({ where: { id: closed.id } }))
+      .status,
+  ).toBe("CLOSED");
+});
+
+test("listIncidents ignores status/priority filters for a guest but applies them for an internal actor", async () => {
+  const { client, guestActor } = await seedClientAndGuest();
+  const dev = await seedInternal(["DEVELOPER"]);
+
+  await db().incident.create({
+    data: {
+      ref: `INC-${rand()}`,
+      title: "guest-p1",
+      description: "d",
+      affectedService: "s",
+      impact: "MEDIUM",
+      urgency: "MEDIUM",
+      priority: "P1",
+      status: "ASSIGNED",
+      reportedById: guestActor.id,
+      clientId: client.id,
+      dueAt: new Date(Date.now() + 3600_000),
+      overdue: false,
+    },
+  });
+  await db().incident.create({
+    data: {
+      ref: `INC-${rand()}`,
+      title: "guest-p3",
+      description: "d",
+      affectedService: "s",
+      impact: "MEDIUM",
+      urgency: "MEDIUM",
+      priority: "P3",
+      status: "NEW",
+      reportedById: guestActor.id,
+      clientId: client.id,
+      dueAt: new Date(Date.now() + 3600_000),
+      overdue: false,
+    },
+  });
+
+  const guestList = await listIncidents(
+    guestActor,
+    { priority: "P1", status: "ASSIGNED" },
+    db(),
+  );
+  expect(guestList.map((i) => i.title).sort()).toEqual([
+    "guest-p1",
+    "guest-p3",
+  ]);
+
+  const internalList = await listIncidents(
+    dev.actor,
+    { priority: "P1", status: "ASSIGNED" },
+    db(),
+  );
+  expect(internalList.map((i) => i.title)).toEqual(["guest-p1"]);
+});
+
+test("in-app status-change summary uses internal vocab for internal recipients; the guest email keeps the plain word", async () => {
+  const dev = await seedInternal(["DEVELOPER"]);
+  const assignee = await seedInternal([]);
+  const { guest, guestActor } = await seedClientAndGuest();
+
+  const inc = await ctx(() =>
+    db().$transaction((tx) =>
+      createIncident(guestActor, tx, {
+        kind: "GUEST",
+        title: "cannot log in",
+        description: "d",
+        affectedService: "portal",
+        affectingLevel: "whole team",
+      }),
+    ),
+  );
+  await ctx(() =>
+    db().$transaction((tx) =>
+      assignIncident(dev.actor, tx, inc.id, { assigneeId: assignee.id }),
+    ),
+  );
+  await ctx(() =>
+    db().$transaction((tx) =>
+      transitionIncident(dev.actor, tx, inc.id, { to: "IN_PROGRESS" }),
+    ),
+  );
+
+  const assigneeNote = await db().notification.findFirst({
+    where: { subjectId: inc.id, kind: "STATUS_CHANGED", userId: assignee.id },
+  });
+  const summary = (assigneeNote?.payload as { summary: string }).summary;
+  expect(summary).toContain("In progress");
+  expect(summary).not.toContain("Investigating");
+
+  const email = await db().emailOutbox.findFirst({
+    where: { toEmail: guest.email, template: "incident_status" },
+  });
+  expect((email?.payload as { status: string }).status).toBe("Investigating");
+});
+
 test("a guest cannot transition or reopen (ForbiddenError)", async () => {
   const dev = await seedInternal(["DEVELOPER"]);
   const { guestActor } = await seedClientAndGuest();

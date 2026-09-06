@@ -11,7 +11,11 @@ import { authorize } from "@/server/policy/authorize";
 import { ForbiddenError, NotFoundError } from "@/server/policy/errors";
 import { assertVisibleToGuest, scopeToClient } from "@/server/policy/scope";
 import { dueAtFrom, priorityFor } from "./priority";
-import { guestIncidentStatusLabel, serializeIncident } from "./serialize";
+import {
+  guestIncidentStatusLabel,
+  internalIncidentStatusLabel,
+  serializeIncident,
+} from "./serialize";
 import { REOPEN_WINDOW_MS, assertTransition } from "./state";
 
 /**
@@ -124,8 +128,15 @@ export async function listIncidents(
   const rows = await client.incident.findMany({
     where: {
       ...scopeToClient(actor),
-      ...(filters.status ? { status: filters.status } : {}),
-      ...(filters.priority ? { priority: filters.priority } : {}),
+      // `status` / `priority` are internal-only filters — a guest running them
+      // could diff result sets to recover the internal priority / status the
+      // serializer deliberately withholds. A guest's portal list passes `{}`.
+      ...(filters.status && isInternal(actor)
+        ? { status: filters.status }
+        : {}),
+      ...(filters.priority && isInternal(actor)
+        ? { priority: filters.priority }
+        : {}),
       // The stored column, kept honest by the overdue sweep (Task 6).
       ...(filters.overdue ? { overdue: true } : {}),
       // `mine` is an internal-only filter; a guest's list is already scoped.
@@ -401,10 +412,19 @@ type StatusChangeRow = {
  */
 async function notifyReporterAndAssignee(
   tx: PrismaTransaction,
-  args: { row: StatusChangeRow; actorId: string; guestStatus: string },
+  args: {
+    row: StatusChangeRow;
+    actorId: string;
+    to: "IN_PROGRESS" | "RESOLVED" | "CLOSED";
+    guestStatus: string;
+  },
 ): Promise<void> {
   const { row } = args;
-  const summary = `${row.ref} status updated: ${args.guestStatus}`;
+  // The in-app summary reaches internal recipients too, so it uses the internal
+  // vocabulary; the guest-only `incident_status` email keeps the plain word.
+  const summary = `${row.ref} status updated: ${internalIncidentStatusLabel(
+    args.to,
+  )}`;
 
   const reporter = await tx.user.findUnique({
     where: { id: row.reportedById },
@@ -416,6 +436,7 @@ async function notifyReporterAndAssignee(
     subjectType: "Incident",
     subjectId: row.id,
     summary,
+    excludeActorId: args.actorId,
     email:
       reporter?.kind === "GUEST"
         ? {
@@ -448,6 +469,15 @@ export async function transitionIncident(
 ): Promise<void> {
   authorize(actor, "incident.transition", { type: "incident", id });
   const row = await loadIncidentOr404(tx, id);
+  // `INCIDENT_TRANSITIONS` legally contains RESOLVED/CLOSED → IN_PROGRESS for
+  // `reopenIncident`'s sake. Block that path here so a bare
+  // `transition {"to":"IN_PROGRESS"}` cannot restart a resolved/closed incident
+  // without the reopen guards (14-day window, reason, stale-stamp clearing).
+  if (input.to === "IN_PROGRESS" && row.status !== "ASSIGNED") {
+    throw new ForbiddenError(
+      "use the reopen endpoint to restart a resolved or closed incident",
+    );
+  }
   assertTransition(row.status, input.to);
 
   const now = new Date();
@@ -486,6 +516,7 @@ export async function transitionIncident(
   await notifyReporterAndAssignee(tx, {
     row,
     actorId: actor.id,
+    to: input.to,
     guestStatus: guestIncidentStatusLabel(input.to),
   });
 }
@@ -510,7 +541,15 @@ export async function reopenIncident(
 
   await tx.incident.update({
     where: { id },
-    data: { status: "IN_PROGRESS", resolvedAt: null, closedAt: null },
+    data: {
+      status: "IN_PROGRESS",
+      resolvedAt: null,
+      closedAt: null,
+      // Clear the stale overdue state so the sweep re-considers the incident
+      // (and can re-flag + re-notify if it is still past due).
+      overdue: false,
+      overdueNotifiedAt: null,
+    },
   });
   await writeAudit(tx, {
     actorId: actor.id,
@@ -522,6 +561,7 @@ export async function reopenIncident(
   await notifyReporterAndAssignee(tx, {
     row,
     actorId: actor.id,
+    to: "IN_PROGRESS",
     guestStatus: guestIncidentStatusLabel("IN_PROGRESS"),
   });
 }

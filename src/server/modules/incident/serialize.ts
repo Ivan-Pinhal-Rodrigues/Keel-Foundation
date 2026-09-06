@@ -91,6 +91,13 @@ export function guestSlaLine(
     return `Resolved in ${humanizeDuration(ms)}`;
   }
 
+  // A terminal incident with no `resolvedAt` (e.g. closed straight from a
+  // migration) must not fall through to the due/overdue comparison below and
+  // print "Response overdue" on something already done.
+  if (terminal) {
+    return "Resolved";
+  }
+
   const dueMs = row.dueAt.getTime();
   const nowMs = now.getTime();
 
