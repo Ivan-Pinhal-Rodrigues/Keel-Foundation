@@ -446,6 +446,10 @@ export async function decideDemand(
   if (row.status !== "WORTH_ASSESSED" && !isReDecide) {
     throw new ForbiddenError("demand is not awaiting a worth decision");
   }
+  // Defensive: unreachable while the status guard above holds. A demand only
+  // reaches WORTH_ASSESSED (or a parked APPROVED) via `maybeCompleteWorth`,
+  // which requires a complete worth row, and no service path clears a worth
+  // field afterward. Kept as a fail-closed guard against a hand-edited row.
   if (!worth || !worthComplete(worth)) {
     throw new ForbiddenError("worth assessment incomplete");
   }

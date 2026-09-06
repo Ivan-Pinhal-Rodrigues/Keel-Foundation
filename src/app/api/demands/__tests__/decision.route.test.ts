@@ -11,8 +11,10 @@ const { db, asActor } = withRouteTestDb();
 
 let assessedId = "";
 let submitterAssessedId = "";
+let guestOwnDemandId = "";
 let approver: TestActor;
 let submitterApprover: TestActor;
+let guestActor: TestActor;
 
 async function seedAssessed(submittedById: string, clientId: string | null) {
   const demand = await db.demand.create({
@@ -76,8 +78,11 @@ beforeAll(async () => {
     }),
   );
 
+  guestActor = await asActor(guest);
+
   assessedId = await seedAssessed(guest.id, client.id);
   submitterAssessedId = await seedAssessed(submitterApprover.userId, null);
+  guestOwnDemandId = await seedAssessed(guest.id, client.id);
 }, 180_000);
 
 const decideReq = (body: unknown, actor?: TestActor) =>
@@ -135,6 +140,28 @@ test("the submitter with a >=20-char justification → 200 and the override is r
     where: { demandId: submitterAssessedId },
   });
   expect(w.isSingleApproverOverride).toBe(true);
+});
+
+test("an authed guest cannot decide or reject — even on their own client's demand → 403", async () => {
+  const dec = await DECIDE(decideReq({ decision: "PURSUE" }, guestActor), {
+    params: Promise.resolve({ id: guestOwnDemandId }),
+  });
+  expect(dec.status).toBe(403);
+
+  const rej = await REJECT(
+    new Request("http://localhost:3000/api/demands/x/reject", {
+      method: "POST",
+      headers: { "content-type": "application/json", ...guestActor.headers },
+      body: JSON.stringify({ reason: "please do not decline this" }),
+    }),
+    { params: Promise.resolve({ id: guestOwnDemandId }) },
+  );
+  expect(rej.status).toBe(403);
+
+  const d = await db.demand.findUniqueOrThrow({
+    where: { id: guestOwnDemandId },
+  });
+  expect(d.status).toBe("WORTH_ASSESSED");
 });
 
 test("reject → 200 and the demand lands REJECTED with the reason", async () => {

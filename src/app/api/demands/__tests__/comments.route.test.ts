@@ -113,6 +113,18 @@ test("a guest from another client → 404", async () => {
   expect(res.status).toBe(404);
 });
 
+test("a guest from another client POSTing a comment → 404", async () => {
+  const res = await POST(
+    new Request(url, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...otherGuest.headers },
+      body: JSON.stringify({ body: "let me in", visibleToClient: true }),
+    }),
+    ctx(),
+  );
+  expect(res.status).toBe(404);
+});
+
 test("a bad body → 400", async () => {
   const res = await POST(
     new Request(url, {
