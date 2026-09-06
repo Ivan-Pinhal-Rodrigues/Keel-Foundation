@@ -100,11 +100,25 @@ test("toggling 'Overdue only' hides the non-overdue card and pushes ?overdue=tru
 });
 
 test("clicking a card opens the drawer, which fetches the incident", async () => {
-  apiFetchMock.mockResolvedValue({
-    id: "i1",
-    ref: "INC-0001",
-    title: "Checkout is down",
-    status: "IN_PROGRESS",
+  // The full drawer (Task 9) also fetches its comment thread; a hat-less viewer
+  // does not fetch the internal-users list.
+  apiFetchMock.mockImplementation((path) => {
+    if (path === "/api/incidents/i1/comments") {
+      return Promise.resolve({ comments: [] });
+    }
+    return Promise.resolve({
+      id: "i1",
+      ref: "INC-0001",
+      title: "Checkout is down",
+      description: "Payments fail.",
+      affectedService: "Payments API",
+      impact: "HIGH",
+      urgency: "HIGH",
+      priority: "P1",
+      status: "IN_PROGRESS",
+      activity: [],
+      linkedChanges: [],
+    });
   });
   render(
     <IncidentRegister initialRows={rows} initialFilters={{}} viewer={viewer} />,
