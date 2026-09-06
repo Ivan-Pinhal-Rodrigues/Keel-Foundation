@@ -35,6 +35,7 @@ async function main() {
   // something real to render on a fresh database. Never in production.
   if (process.env.NODE_ENV !== "production") {
     await seedDemoDemands();
+    await seedDemoIncidents();
   }
 }
 
@@ -171,6 +172,130 @@ async function seedDemoDemands(): Promise<void> {
     "seeded demo: guest@northwind.example (Keel-guest-2026), ceo@keel.local, " +
       "cto@keel.local, demands DEM-9001 (submitted) / DEM-9002 (triaging) / " +
       "DEM-9003 (approved)",
+  );
+}
+
+/**
+ * Demo incidents for the incident lifecycle walkthrough (plan-02 Task 11).
+ *
+ * Composes with `main()`'s seed — it looks up the existing "Northwind Traders"
+ * client and existing users (guest@northwind.example, cto@keel.local) by their
+ * unique keys rather than creating duplicates. Everything is `upsert`ed on a
+ * unique key (incident `ref`) so a second run is a no-op. The fixed refs
+ * `INC-9001..9004` sit far above the `Counter`-allocated `INC-0001..N` range,
+ * so they never collide with incidents created through the app.
+ *
+ * These rows are written directly, outside `runWithContext` — they carry no
+ * `AuditEvent` and fire no notifications. They are display fixtures, not a
+ * replay of the real lifecycle (integration tests cover that).
+ */
+async function seedDemoIncidents(): Promise<void> {
+  const northwind = await prisma.client.findUniqueOrThrow({
+    where: { name: "Northwind Traders" },
+  });
+
+  const guest = await prisma.user.findUniqueOrThrow({
+    where: { email: "guest@northwind.example" },
+  });
+
+  const cto = await prisma.user.findUniqueOrThrow({
+    where: { email: "cto@keel.local" },
+  });
+
+  const now = new Date();
+
+  // INC-9001 — freshly reported, still in NEW status, no assignee.
+  await prisma.incident.upsert({
+    where: { ref: "INC-9001" },
+    update: {},
+    create: {
+      ref: "INC-9001",
+      title: "Login page slow after the last release.",
+      description:
+        "Users report significant latency when accessing the login page.",
+      affectedService: "Authentication",
+      impact: "MEDIUM",
+      urgency: "MEDIUM",
+      priority: "P3",
+      status: "NEW",
+      reportedById: guest.id,
+      clientId: northwind.id,
+      dueAt: new Date(now.getTime() + 72 * 60 * 60 * 1000),
+      overdue: false,
+    },
+  });
+
+  // INC-9002 — assigned to CTO, medium urgency.
+  await prisma.incident.upsert({
+    where: { ref: "INC-9002" },
+    update: {},
+    create: {
+      ref: "INC-9002",
+      title: "Invoices export as an empty file.",
+      description:
+        "The export feature returns empty files instead of invoice data.",
+      affectedService: "Billing",
+      impact: "HIGH",
+      urgency: "MEDIUM",
+      priority: "P2",
+      status: "ASSIGNED",
+      reportedById: guest.id,
+      clientId: northwind.id,
+      assigneeId: cto.id,
+      dueAt: new Date(now.getTime() + 24 * 60 * 60 * 1000),
+      overdue: false,
+    },
+  });
+
+  // INC-9003 — in progress, high priority, overdue (dueAt is in the past).
+  await prisma.incident.upsert({
+    where: { ref: "INC-9003" },
+    update: {},
+    create: {
+      ref: "INC-9003",
+      title: "Portal is returning 500 for all users.",
+      description:
+        "All requests to the portal result in HTTP 500 server errors.",
+      affectedService: "Portal",
+      impact: "HIGH",
+      urgency: "HIGH",
+      priority: "P1",
+      status: "IN_PROGRESS",
+      reportedById: guest.id,
+      clientId: northwind.id,
+      assigneeId: cto.id,
+      dueAt: new Date(now.getTime() - 2 * 60 * 60 * 1000),
+      overdue: true,
+      overdueNotifiedAt: now,
+    },
+  });
+
+  // INC-9004 — resolved, with resolution and resolvedAt set.
+  await prisma.incident.upsert({
+    where: { ref: "INC-9004" },
+    update: {},
+    create: {
+      ref: "INC-9004",
+      title: "Typo in the welcome email.",
+      description: "The welcome email template contains a grammatical error.",
+      affectedService: "Email",
+      impact: "MEDIUM",
+      urgency: "LOW",
+      priority: "P3",
+      status: "RESOLVED",
+      reportedById: guest.id,
+      clientId: northwind.id,
+      assigneeId: cto.id,
+      dueAt: new Date(now.getTime() - 24 * 60 * 60 * 1000),
+      overdue: false,
+      resolution: "Corrected the typo in the email template and redeployed.",
+      resolvedAt: new Date(now.getTime() - 1 * 60 * 60 * 1000),
+    },
+  });
+
+  console.log(
+    "seeded demo: incidents INC-9001 (new) / INC-9002 (assigned) / " +
+      "INC-9003 (in progress, overdue) / INC-9004 (resolved)",
   );
 }
 
