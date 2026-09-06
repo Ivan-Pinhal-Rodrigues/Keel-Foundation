@@ -1,0 +1,178 @@
+/*
+ * Change register + scheduled-windows list (`plans/plan-03-change-approvals`
+ * Task 12, spec 03 §8.1). Density and spacing follow the demand / incident
+ * registers; all colour comes from src/styles/tokens.css custom properties —
+ * no raw hex, no Tailwind.
+ */
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 20px;
+  align-items: start;
+}
+
+@media (max-width: 960px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.register {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  padding: 5px 10px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-2);
+  transition:
+    border-color 0.1s,
+    color 0.1s,
+    background 0.1s;
+}
+
+.chip:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.chip[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent-wash);
+  color: var(--accent-ink);
+}
+
+/*
+ * The `ref` column renders as bare text (no wrapping element, so DataTable's
+ * row activator keeps a clean per-row name), so reach its <td> here for the
+ * mono treatment. Scoped under `.register` so it cannot escape this view.
+ */
+.register :global(td:first-child) {
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.01em;
+  color: var(--text-3);
+}
+
+.title {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.muted {
+  color: var(--text-3);
+}
+
+.lifecycleCell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.demandRef {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-2);
+}
+
+.windowCell {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-2);
+}
+
+.empty {
+  padding: 22px 16px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-3);
+}
+
+/* Scheduled-windows side list. */
+
+.windows {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.windowsHead {
+  margin: 0;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-3);
+}
+
+.windowsEmpty {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.windowsList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.windowItem {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.windowItem:last-child {
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.windowRef {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.windowTitle {
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.windowWhen {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-2);
+}

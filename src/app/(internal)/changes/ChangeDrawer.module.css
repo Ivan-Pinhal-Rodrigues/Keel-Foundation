@@ -1,0 +1,30 @@
+/*
+ * Change drawer (`plans/plan-03-change-approvals` Task 12 stub; Task 13 fills it
+ * in). All colour comes from src/styles/tokens.css custom properties; no raw
+ * hex, no Tailwind.
+ */
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.statusRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.muted {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-3);
+}
+
+.error {
+  margin: 0;
+  font-size: 13px;
+  color: var(--crit);
+}

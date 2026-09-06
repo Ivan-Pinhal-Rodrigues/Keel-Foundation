@@ -43,6 +43,19 @@ const NAV: NavItem[] = [
     ),
   },
   {
+    key: "changes",
+    label: "Changes",
+    href: "/changes",
+    icon: (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M6 3v12" />
+        <path d="M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6z" />
+        <path d="M6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6z" />
+        <path d="M15 6H9a3 3 0 0 0-3 3" />
+      </svg>
+    ),
+  },
+  {
     key: "approvals",
     label: "Approvals",
     href: "/approvals",
