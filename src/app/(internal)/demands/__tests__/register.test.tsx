@@ -38,14 +38,26 @@ const rows = [
 // The repo carries no @testing-library/jest-dom, so assert on truthiness /
 // null rather than `toBeInTheDocument()`.
 test("renders a row per demand with ref, title, source, status", () => {
-  render(<DemandRegister initialRows={rows} initialFilters={{}} />);
+  render(
+    <DemandRegister
+      initialRows={rows}
+      initialFilters={{}}
+      viewer={{ id: "u1", kind: "INTERNAL", hats: [] }}
+    />,
+  );
   expect(screen.getByText("DEM-0001")).toBeTruthy();
   expect(screen.getByText("Faster exports")).toBeTruthy();
   expect(screen.getAllByRole("row")).toHaveLength(3); // header + 2
 });
 
 test("the status filter chip narrows the visible rows", async () => {
-  render(<DemandRegister initialRows={rows} initialFilters={{}} />);
+  render(
+    <DemandRegister
+      initialRows={rows}
+      initialFilters={{}}
+      viewer={{ id: "u1", kind: "INTERNAL", hats: [] }}
+    />,
+  );
   await userEvent.click(screen.getByRole("button", { name: /approved/i }));
   expect(screen.queryByText("Faster exports")).toBeNull();
   expect(screen.getByText("Audit log export")).toBeTruthy();

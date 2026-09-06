@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { listDemandsQuery } from "@/lib/api/schemas/demands";
-import { getCurrentActor } from "@/server/auth/current";
+import { getCurrentActor, whoami } from "@/server/auth/current";
 import { listDemands } from "@/server/modules/demand/service";
 import { DemandRegister, type DemandRow } from "./DemandRegister";
 
@@ -49,6 +49,10 @@ export default async function DemandsPage({
   const actor = await getCurrentActor();
   if (!actor) redirect("/login");
 
+  const me = await whoami();
+  if (!me) redirect("/login");
+  const viewer = { id: me.id, kind: me.kind, hats: me.hats };
+
   const sp = await searchParams;
   const filters = listDemandsQuery.parse({
     status: first(sp.status),
@@ -72,6 +76,7 @@ export default async function DemandsPage({
         source: filters.source,
         mine: filters.mine,
       }}
+      viewer={viewer}
     />
   );
 }

@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { DataTable, type Column } from "@/components/DataTable";
 import { Pill, type PillTone } from "@/components/Pill";
-import { DemandDrawer } from "./DemandDrawer";
+import { DemandDrawer, type DemandViewer } from "./DemandDrawer";
 import styles from "./demands.module.css";
 
 /**
@@ -102,9 +102,11 @@ function valueDots(score: number | null | undefined): number {
 export function DemandRegister({
   initialRows,
   initialFilters,
+  viewer,
 }: {
   initialRows: DemandRow[];
   initialFilters: RegisterFilters;
+  viewer: DemandViewer;
 }) {
   const router = useRouter();
   const [status, setStatus] = useState<string | undefined>(
@@ -269,7 +271,12 @@ export function DemandRegister({
       ) : null}
 
       {openId ? (
-        <DemandDrawer id={openId} open onClose={() => setOpenId(null)} />
+        <DemandDrawer
+          id={openId}
+          open
+          onClose={() => setOpenId(null)}
+          viewer={viewer}
+        />
       ) : null}
     </section>
   );
