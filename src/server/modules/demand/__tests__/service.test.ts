@@ -198,7 +198,7 @@ async function seedInternal(
 }
 
 async function seedDemand(
-  status: "SUBMITTED" | "TRIAGING",
+  status: "SUBMITTED" | "TRIAGING" | "WORTH_ASSESSED",
   worth?: {
     businessValue?: string;
     effort?: "S" | "M" | "L";
@@ -354,6 +354,23 @@ test("setCostOfDelay: any internal user sets it, audited, and it can complete th
       where: { action: "demand.cost_of_delay_set", subjectId: id },
     }),
   ).toBeTruthy();
+});
+
+test("setCostOfDelay is rejected once the demand has left triage", async () => {
+  const { id } = await seedDemand("WORTH_ASSESSED", {
+    businessValue: "high",
+    effort: "M",
+    costOfDelay: "already set",
+  });
+  const dev = (await seedInternal(["DEVELOPER"])).actor;
+
+  await expect(
+    ctx(() =>
+      db().$transaction((tx) =>
+        setCostOfDelay(dev, tx, id, { costOfDelay: "too late" }),
+      ),
+    ),
+  ).rejects.toThrow(/triage/i);
 });
 
 test("value scored notifies TECHNICAL_APPROVER hat holders; effort scored notifies BUSINESS_APPROVER hat holders", async () => {

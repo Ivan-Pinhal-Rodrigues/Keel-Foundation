@@ -323,6 +323,9 @@ export async function setCostOfDelay(
   // rest of this module (a guest is denied 403 regardless of the id).
   requireInternal(actor);
   const row = await loadDemandOr404(tx, id);
+  if (row.status !== "TRIAGING") {
+    throw new ForbiddenError("cost of delay can only be set during triage");
+  }
 
   await tx.worthAssessment.upsert({
     where: { demandId: id },

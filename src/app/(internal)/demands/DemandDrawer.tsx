@@ -204,6 +204,12 @@ export function DemandDrawer({
     worth?.businessValue && worth?.effort && worth?.costOfDelay,
   );
   const showConvert = status === "APPROVED" && worth?.decision === "PURSUE";
+  // A parked demand may be re-decided; anything else terminal (APPROVED/PURSUE,
+  // REJECTED, CONVERTED) must not accept a fresh decision — the server rejects
+  // it with a 403, so gate the buttons rather than let the click dead-end.
+  const isReDecide = status === "APPROVED" && worth?.decision === "PARK";
+  const canSubmitDecision =
+    worthComplete && canDecide && (status === "WORTH_ASSESSED" || isReDecide);
   const showDecisionPanel = canDecide || showConvert;
 
   async function runWrite(
@@ -270,6 +276,10 @@ export function DemandDrawer({
         setPendingDecision(decision);
         setOverrideOpen(true);
       } else {
+        // Close the dialog first — otherwise the error renders behind the open
+        // modal and the dialog looks like it did nothing.
+        setOverrideOpen(false);
+        setPendingDecision(null);
         setActionError("The decision could not be recorded.");
       }
     } finally {
@@ -493,7 +503,7 @@ export function DemandDrawer({
                     type="button"
                     className={styles.action}
                     onClick={() => onDecisionClick(d)}
-                    disabled={!worthComplete || !canDecide || busy}
+                    disabled={!canSubmitDecision || busy}
                   >
                     {d === "PURSUE" ? "Pursue" : d === "PARK" ? "Park" : "Drop"}
                   </button>
@@ -505,7 +515,7 @@ export function DemandDrawer({
                     type="button"
                     className={styles.actionGhost}
                     onClick={() => setRejectOpen((v) => !v)}
-                    disabled={busy}
+                    disabled={busy || !canSubmitDecision}
                   >
                     Reject
                   </button>

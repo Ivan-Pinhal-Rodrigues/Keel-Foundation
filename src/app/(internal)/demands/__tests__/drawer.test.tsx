@@ -224,6 +224,28 @@ test("decision buttons are disabled until businessValue, effort, and cost of del
   );
   const pursue2 = await screen.findByRole("button", { name: "Pursue" });
   expect((pursue2 as HTMLButtonElement).disabled).toBeFalsy();
+
+  // …and disabled again once the demand is terminally decided — the server
+  // would 403 a fresh decision, so the buttons must not invite the click.
+  cleanup();
+  apiFetchMock.mockReset();
+  wire({
+    demand: {
+      ...demand,
+      status: "APPROVED",
+      worth: { ...demand.worth, decision: "PURSUE" },
+    },
+  });
+  render(
+    <DemandDrawer
+      id="d1"
+      open
+      onClose={vi.fn()}
+      viewer={internal(["BUSINESS_APPROVER", "TECHNICAL_APPROVER"])}
+    />,
+  );
+  const pursue3 = await screen.findByRole("button", { name: "Pursue" });
+  expect((pursue3 as HTMLButtonElement).disabled).toBeTruthy();
 });
 
 test("when the viewer is the submitter, clicking Pursue opens the override dialog; a >=20-char justification calls POST /decision with overrideJustification", async () => {
