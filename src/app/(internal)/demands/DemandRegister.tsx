@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { DataTable, type Column } from "@/components/DataTable";
 import { Pill, type PillTone } from "@/components/Pill";
+import { DemandDrawer } from "./DemandDrawer";
 import styles from "./demands.module.css";
 
 /**
@@ -242,6 +243,7 @@ export function DemandRegister({
         <label className={styles.sort}>
           <span className={styles.sortLabel}>Sort</span>
           <select
+            aria-label="Sort"
             value={sort}
             onChange={(e) => setSort(e.target.value as SortKey)}
           >
@@ -261,11 +263,14 @@ export function DemandRegister({
       />
 
       {visibleRows.length === 0 ? (
-        <p className={styles.empty}>No demands match these filters.</p>
+        <p className={styles.empty} role="status">
+          No demands match these filters.
+        </p>
       ) : null}
 
-      {/* TODO(task-6): render <DemandDrawer id={openId} open onClose={() => setOpenId(null)} /> */}
-      {openId && null}
+      {openId ? (
+        <DemandDrawer id={openId} open onClose={() => setOpenId(null)} />
+      ) : null}
     </section>
   );
 }

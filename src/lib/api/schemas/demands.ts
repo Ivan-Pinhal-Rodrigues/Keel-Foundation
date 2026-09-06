@@ -83,3 +83,13 @@ export const rejectBody = z.object({
   reason: z.string().trim().min(1).max(2000),
 });
 export type RejectBody = z.infer<typeof rejectBody>;
+
+/**
+ * `POST /api/demands/:id/comments` body. `visibleToClient` is an internal
+ * author's choice (ignored for a guest — the module forces it true).
+ */
+export const commentBody = z.object({
+  body: z.string().trim().min(1).max(5000),
+  visibleToClient: z.boolean().optional(),
+});
+export type CommentBody = z.infer<typeof commentBody>;

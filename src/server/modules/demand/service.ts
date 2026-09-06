@@ -1,4 +1,5 @@
 import type { $Enums, PrismaClient } from "@prisma/client";
+import { auditActionLabel, guestAuditActionLabel } from "@/server/audit/labels";
 import { writeAudit } from "@/server/audit/write";
 import { prisma } from "@/server/db/client";
 import type { PrismaTransaction } from "@/server/db/tx";
@@ -102,6 +103,11 @@ export async function listDemands(
   return rows.map((row) => serializeDemand(actor, row));
 }
 
+/** A short, stable timestamp string for a `Timeline` row ("2026-09-06 14:30"). */
+function formatActivityTime(at: Date): string {
+  return at.toISOString().slice(0, 16).replace("T", " ");
+}
+
 export async function getDemandForActor(
   actor: Actor,
   id: string,
@@ -118,7 +124,42 @@ export async function getDemandForActor(
     id,
     clientId: row.clientId,
   });
-  return serializeDemand(actor, row);
+
+  const serialized = serializeDemand(actor, row);
+
+  // `activity` is assembled here, not a row column — it never rides the
+  // `serializePick` allowlist. The guest filter is `guestAuditActionLabel`
+  // returning `null` for an internal-only action, which drops the row.
+  const events = await client.auditEvent.findMany({
+    where: { subjectType: "Demand", subjectId: id },
+    orderBy: { at: "asc" },
+    select: { action: true, at: true, actorId: true },
+  });
+  const guest = !isInternal(actor);
+  const activity = events.flatMap((e) => {
+    const text = guest
+      ? guestAuditActionLabel(e.action)
+      : auditActionLabel(e.action);
+    return text == null ? [] : [{ time: formatActivityTime(e.at), text }];
+  });
+
+  return { ...serialized, activity };
+}
+
+/**
+ * The demand's real `clientId` — a narrow read the comments route needs to build
+ * a `CommentSubject` (the guest-serialized demand omits `clientId`). Keeps the
+ * Prisma boundary: the route imports this, never `@/server/db/client`.
+ */
+export async function demandClientId(
+  id: string,
+  client: PrismaClient = prisma,
+): Promise<string | null> {
+  const row = await client.demand.findUnique({
+    where: { id },
+    select: { clientId: true },
+  });
+  return row?.clientId ?? null;
 }
 
 /**
