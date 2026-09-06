@@ -286,6 +286,9 @@ export async function recordDecision(
   }
 
   const reason = input.reason.trim();
+  if (reason.length === 0) {
+    throw new ConflictError("a decision requires a reason");
+  }
   const justification = singleApproverOverride
     ? input.overrideJustification!.trim()
     : null;
@@ -356,14 +359,17 @@ export async function recordDecision(
     });
   }
 
-  // Notify.
+  // Notify. Keyed on the change (`request.subjectType` / `request.subjectId`),
+  // matching `openApprovalRequest`, so a subject-keyed feed and the notification
+  // deep-links stay consistent. (The `approval.*` audit events above stay on
+  // `subjectType: "ApprovalRequest"` — spec 04 §6 event chain.)
   const nextStep = currentStep(nextSteps);
   if (input.decision === "APPROVED" && nextStep) {
     await emitNotification(tx, {
       recipients: { hat: nextStep.requiredHat },
       kind: "APPROVAL_NEEDED",
-      subjectType: "ApprovalRequest",
-      subjectId: request.id,
+      subjectType: request.subjectType,
+      subjectId: request.subjectId,
       summary: `Approval needed on ${request.subjectType} ${request.subjectId}`,
       excludeActorId: request.createdById,
     });
@@ -372,8 +378,8 @@ export async function recordDecision(
     await emitNotification(tx, {
       recipients: { userIds: [request.createdById] },
       kind: "STATUS_CHANGED",
-      subjectType: "ApprovalRequest",
-      subjectId: request.id,
+      subjectType: request.subjectType,
+      subjectId: request.subjectId,
       summary: `Approval ${requestStatus.toLowerCase()} on ${request.subjectType} ${request.subjectId}`,
     });
   }
@@ -381,8 +387,8 @@ export async function recordDecision(
     await emitNotification(tx, {
       recipients: { audience: "ALL_INTERNAL" },
       kind: "STATUS_CHANGED",
-      subjectType: "ApprovalRequest",
-      subjectId: request.id,
+      subjectType: request.subjectType,
+      subjectId: request.subjectId,
       summary: "A change approval used a single-approver override",
       excludeActorId: input.actor.id,
     });

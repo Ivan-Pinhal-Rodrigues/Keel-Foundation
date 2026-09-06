@@ -299,9 +299,13 @@ test("1-step request: one APPROVED decision resolves the request APPROVED", asyn
   expect(actions).toContain("approval.request_resolved");
 
   const notes = await db().notification.findMany({
-    where: { subjectId: id, kind: "STATUS_CHANGED" },
+    where: { subjectId, kind: "STATUS_CHANGED" },
   });
   expect(notes.map((n) => n.userId)).toEqual([owner.id]);
+  // The notification is keyed on the change, not the ApprovalRequest, so a
+  // subject-keyed feed and the deep-link match `openApprovalRequest`.
+  expect(notes[0]!.subjectType).toBe("change");
+  expect(notes[0]!.subjectId).toBe(subjectId);
 });
 
 test("2-step high_risk: needs both; step 1 approval notifies the business approver; step 2 approval resolves it", async () => {
@@ -313,6 +317,15 @@ test("2-step high_risk: needs both; step 1 approval notifies the business approv
   const { id } = await open(highRiskInput(owner.id, subjectId));
 
   const step1 = await currentStepId(subjectId);
+  // Notifications are keyed on the change, so the step-1 `openApprovalRequest`
+  // APPROVAL_NEEDED is already on this subject — snapshot it out.
+  const preIds = (
+    await db().notification.findMany({
+      where: { subjectId, kind: "APPROVAL_NEEDED" },
+      select: { id: true },
+    })
+  ).map((n) => n.id);
+
   const first = await decide({
     stepId: step1,
     actor: tech,
@@ -322,11 +335,12 @@ test("2-step high_risk: needs both; step 1 approval notifies the business approv
   expect(first).toEqual({ requestStatus: "PENDING" });
 
   const notes = await db().notification.findMany({
-    where: { subjectId: id, kind: "APPROVAL_NEEDED" },
+    where: { subjectId, kind: "APPROVAL_NEEDED", id: { notIn: preIds } },
   });
   expect(notes.map((n) => n.userId)).toContain(business.id);
   expect(notes.map((n) => n.userId)).not.toContain(owner.id);
   expect(notes.map((n) => n.userId)).not.toContain(tech.id);
+  expect(notes[0]!.subjectType).toBe("change");
 
   const step2 = await currentStepId(subjectId);
   expect(step2).not.toBe(step1);
@@ -513,7 +527,7 @@ test("the creator with a >=20-char justification → decision recorded, isSingle
 
   // The override transparency notice fans out to every other internal user.
   const overrideNotes = await db().notification.findMany({
-    where: { subjectId: id, kind: "STATUS_CHANGED" },
+    where: { subjectId, kind: "STATUS_CHANGED" },
   });
   const recipients = overrideNotes.map((n) => n.userId);
   expect(recipients).toContain(other.id);
@@ -525,6 +539,63 @@ test("the creator with a >=20-char justification → decision recorded, isSingle
       "A change approval used a single-approver override",
   );
   expect(overrideOnly.map((n) => n.userId)).not.toContain(owner.id);
+});
+
+test("a hatless actor on a non-current step → ConflictError, not ForbiddenError (conflict is enforced before the hat)", async () => {
+  const owner = await seedActor(["DEVELOPER"]);
+  const hatless = await seedActor(["DEVELOPER"]); // no *_APPROVER hat
+  const subjectId = rand();
+
+  const { id } = await open(highRiskInput(owner.id, subjectId));
+  const step2Id = (
+    await db().approvalStep.findFirstOrThrow({
+      where: { requestId: id, order: 2 },
+    })
+  ).id;
+
+  // Step 1 is still PENDING, so step 2 is non-current. Enforcement step 1
+  // (conflict) must run before step 2 (hat) — otherwise this throws Forbidden.
+  await expect(
+    decide({
+      stepId: step2Id,
+      actor: hatless,
+      decision: "APPROVED",
+      reason: "no hat, wrong step",
+    }),
+  ).rejects.toBeInstanceOf(ConflictError);
+});
+
+test("a hatless actor on a step of an already-resolved request → ConflictError, not ForbiddenError", async () => {
+  const owner = await seedActor(["DEVELOPER"]);
+  const tech = await seedActor(["TECHNICAL_APPROVER"]);
+  const hatless = await seedActor(["DEVELOPER"]);
+  const subjectId = rand();
+
+  await open(standardInput(owner.id, subjectId));
+  const stepId = await currentStepId(subjectId);
+  await decide({ stepId, actor: tech, decision: "APPROVED", reason: "ok" });
+
+  await expect(
+    decide({
+      stepId,
+      actor: hatless,
+      decision: "APPROVED",
+      reason: "too late",
+    }),
+  ).rejects.toBeInstanceOf(ConflictError);
+});
+
+test("recordDecision with a blank reason → ConflictError (spec 04 §9: every decision has a non-empty reason)", async () => {
+  const owner = await seedActor(["DEVELOPER"]);
+  const tech = await seedActor(["TECHNICAL_APPROVER"]);
+  const subjectId = rand();
+
+  await open(standardInput(owner.id, subjectId));
+  const stepId = await currentStepId(subjectId);
+
+  await expect(
+    decide({ stepId, actor: tech, decision: "APPROVED", reason: "   " }),
+  ).rejects.toBeInstanceOf(ConflictError);
 });
 
 test("recordDecision writes ApprovalDecision with .create only (row is immutable for keel_app)", async () => {
