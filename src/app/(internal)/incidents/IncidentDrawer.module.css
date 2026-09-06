@@ -1,0 +1,23 @@
+/*
+ * Incident drawer — STUB for Task 9 (`plans/plan-02-incident.md`). All colour
+ * comes from src/styles/tokens.css custom properties; no raw hex. Task 9
+ * replaces this with the full drawer stylesheet.
+ */
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.muted {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-3);
+}
+
+.error {
+  margin: 0;
+  font-size: 13px;
+  color: var(--crit);
+}
