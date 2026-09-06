@@ -267,7 +267,19 @@ export function ChangeDrawer({
     try {
       await apiFetch(path, { method, body });
       await refetch();
-    } catch {
+    } catch (e: unknown) {
+      // Mirror `onDecision`: a `409 { error: "conflict" }` means the change
+      // moved since it was opened (a stale `from`, or someone else advanced it).
+      // Surface that inline and re-fetch rather than showing a generic failure.
+      if (
+        e instanceof ApiError &&
+        e.status === 409 &&
+        e.body?.error === "conflict"
+      ) {
+        setInlineMessage("This change moved since you opened it — refreshing.");
+        await refetch();
+        return;
+      }
       setActionError("That action could not be completed.");
     } finally {
       setBusy(false);
@@ -297,6 +309,24 @@ export function ChangeDrawer({
       setWentToPlanAcknowledged(done);
     }
   }
+
+  // `serializeChange` hard-codes the two free acknowledgements
+  // (`standaloneConfirmed`, `wentToPlanAcknowledged`) FALSE, so the serialized
+  // `stepper.canAdvance` never reflects the local gate checkboxes — a standalone
+  // DRAFT change, or any IMPLEMENTING change, could never advance from the
+  // drawer. Re-derive an effective value for exactly the two stages whose only
+  // outstanding gate item is a free ack; `stepperStages[current].gate[].done`
+  // already folds in the local checkbox state. Every other stage's `canAdvance`
+  // (approval status, window validity, PIR fields) stays the server's to own.
+  const currentStage = stepperStages.find(
+    (s) => s.key === change?.stepper?.currentStageKey,
+  );
+  const localGatesSatisfied =
+    currentStage != null &&
+    ["draft", "implementing"].includes(currentStage.key) &&
+    currentStage.gate.every((g) => g.done);
+  const effectiveCanAdvance =
+    (change?.stepper?.canAdvance ?? false) || localGatesSatisfied;
 
   function advance() {
     if (!change) return;
@@ -566,7 +596,7 @@ export function ChangeDrawer({
               <LifecycleStepper
                 stages={stepperStages}
                 currentStageKey={change.stepper.currentStageKey}
-                canAdvance={change.stepper.canAdvance}
+                canAdvance={effectiveCanAdvance}
                 blockedReason={change.stepper.blockedReason}
                 onToggleGate={toggleGate}
                 onAdvance={advance}
@@ -583,11 +613,6 @@ export function ChangeDrawer({
                 onDecision={onDecision}
                 busy={busy}
               />
-              {inlineMessage ? (
-                <p role="status" className={styles.metaLine}>
-                  {inlineMessage}
-                </p>
-              ) : null}
             </Panel>
           ) : null}
 
@@ -761,6 +786,12 @@ export function ChangeDrawer({
               </div>
             ) : null}
           </Panel>
+
+          {inlineMessage ? (
+            <p role="status" className={styles.metaLine}>
+              {inlineMessage}
+            </p>
+          ) : null}
 
           {actionError ? (
             <p role="alert" className={styles.error}>

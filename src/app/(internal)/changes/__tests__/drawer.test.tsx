@@ -3,7 +3,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ChangeDrawer } from "@/app/(internal)/changes/ChangeDrawer";
-import { apiFetch } from "@/lib/api/client";
+import { ApiError, apiFetch } from "@/lib/api/client";
 import { stubRadixEnv } from "@/test/dom";
 import stepStyles from "@/components/LifecycleStepper/LifecycleStepper.module.css";
 
@@ -267,14 +267,18 @@ test("the lifecycle stepper renders the 7 stages; Advance is disabled and shows 
   expect(screen.getByText("Waiting on approval")).toBeTruthy();
 });
 
-test("toggling the standalone gate and clicking Advance POSTs /advance with the acknowledgement", async () => {
+test("a standalone DRAFT: Advance is disabled until the standalone gate is checked, then POSTs /advance with the acknowledgement", async () => {
+  // The real serializer NEVER ships `canAdvance: true` here — the free ack
+  // (`standaloneConfirmed`) is hard-coded false server-side and the origin gate
+  // item is not done — so the fixture must match that. The drawer re-derives an
+  // effective `canAdvance` from the LOCAL checkbox state.
   const change = makeChange({
     status: "DRAFT",
     statusLabel: "Draft",
     stepper: {
       stages: stepperStages(),
       currentStageKey: "draft",
-      canAdvance: true,
+      canAdvance: false,
     },
   });
   wire({ change });
@@ -287,9 +291,17 @@ test("toggling the standalone gate and clicking Advance POSTs /advance with the 
     />,
   );
 
+  await screen.findByText("CHG-0001");
+  const advance = await screen.findByRole("button", { name: /advance/i });
+  expect((advance as HTMLButtonElement).disabled).toBe(true);
+
   const box = await screen.findByRole("checkbox", { name: /standalone/i });
   await userEvent.click(box);
-  await userEvent.click(screen.getByRole("button", { name: /advance/i }));
+
+  await waitFor(() =>
+    expect((advance as HTMLButtonElement).disabled).toBe(false),
+  );
+  await userEvent.click(advance);
 
   await waitFor(() => {
     const call = apiFetchMock.mock.calls.find(
@@ -303,6 +315,94 @@ test("toggling the standalone gate and clicking Advance POSTs /advance with the 
     expect(body.from).toBe("DRAFT");
     expect(body.acknowledgements.standaloneConfirmed).toBe(true);
   });
+});
+
+test("an IMPLEMENTING change: Advance is disabled until the 'went to plan' gate is checked, then POSTs /advance with the acknowledgement", async () => {
+  const change = makeChange({
+    status: "IMPLEMENTING",
+    statusLabel: "Implementing",
+    originatingDemandId: "d-1",
+    stepper: {
+      stages: stepperStages(),
+      currentStageKey: "implementing",
+      canAdvance: false,
+    },
+  });
+  wire({ change });
+  render(
+    <ChangeDrawer
+      id="c1"
+      open
+      onClose={vi.fn()}
+      viewer={viewer(["DEVELOPER"], OWNER)}
+    />,
+  );
+
+  await screen.findByText("CHG-0001");
+  const advance = await screen.findByRole("button", { name: /advance/i });
+  expect((advance as HTMLButtonElement).disabled).toBe(true);
+
+  const box = await screen.findByRole("checkbox", { name: /went to plan/i });
+  await userEvent.click(box);
+
+  await waitFor(() =>
+    expect((advance as HTMLButtonElement).disabled).toBe(false),
+  );
+  await userEvent.click(advance);
+
+  await waitFor(() => {
+    const call = apiFetchMock.mock.calls.find(
+      ([p, o]) => p === "/api/changes/c1/advance" && o?.method === "POST",
+    );
+    expect(call).toBeTruthy();
+    const body = call![1]!.body as {
+      from: string;
+      acknowledgements: Record<string, boolean>;
+    };
+    expect(body.from).toBe("IMPLEMENTING");
+    expect(body.acknowledgements.wentToPlanAcknowledged).toBe(true);
+  });
+});
+
+test("an advance that 409-conflicts shows the inline 'moved since you opened it' message and refetches", async () => {
+  const change = makeChange({
+    status: "IMPLEMENTING",
+    statusLabel: "Implementing",
+    originatingDemandId: "d-1",
+    stepper: {
+      stages: stepperStages(),
+      currentStageKey: "implementing",
+      canAdvance: false,
+    },
+  });
+  let getCount = 0;
+  apiFetchMock.mockImplementation((path, o) => {
+    if (path === "/api/changes/c1" && !o) {
+      getCount += 1;
+      return Promise.resolve(change);
+    }
+    if (path === "/api/changes/c1/advance" && o?.method === "POST") {
+      return Promise.reject(new ApiError(409, { error: "conflict" }));
+    }
+    return Promise.reject(new Error(`unexpected call: ${path}`));
+  });
+  render(
+    <ChangeDrawer
+      id="c1"
+      open
+      onClose={vi.fn()}
+      viewer={viewer(["DEVELOPER"], OWNER)}
+    />,
+  );
+
+  await screen.findByText("CHG-0001");
+  await userEvent.click(
+    await screen.findByRole("checkbox", { name: /went to plan/i }),
+  );
+  await userEvent.click(screen.getByRole("button", { name: /advance/i }));
+
+  expect(await screen.findByText(/moved since you opened it/i)).toBeTruthy();
+  await waitFor(() => expect(getCount).toBeGreaterThanOrEqual(2));
 });
 
 test("the ApprovalPanel offers Approve/Reject to the current step's hat holder; a decision POSTs /approve/technical", async () => {
