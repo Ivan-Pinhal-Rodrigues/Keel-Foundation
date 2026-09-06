@@ -13,6 +13,7 @@ import {
   NotFoundError,
   SegregationError,
 } from "@/server/policy/errors";
+import { requireInternal } from "@/server/policy/subjects/helpers";
 
 /**
  * `POST /api/changes/:id/approve/:tier` — a CAB approver records the decision on
@@ -39,6 +40,10 @@ export async function POST(
   const { id, tier } = await params;
   return withRequest(async (): Promise<Response> => {
     const actor = await getActor();
+    // Gate before any DB read: a change is invisible to guests (spec 03), so an
+    // unauthorized caller must get a bare 403 — never a 404/409 that would
+    // disclose the change's existence or approval state.
+    requireInternal(actor);
     const ctx = await changeApprovalContext(id);
     if (!ctx.currentStepId) {
       throw new ConflictError("no approval step is awaiting a decision");

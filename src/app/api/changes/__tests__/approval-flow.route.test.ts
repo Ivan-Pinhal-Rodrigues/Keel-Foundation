@@ -303,6 +303,39 @@ test("a guest cannot submit for approval → 403", async () => {
   expect(res.status).toBe(403);
 });
 
+test("a guest hitting POST /approve/technical on a change with NO pending approval step → 403 { error: 'forbidden' } (not 409 / conflict)", async () => {
+  const draft = await db.change.create({
+    data: {
+      ref: `CHG-${Math.random().toString(16).slice(2, 8)}`,
+      title: "Draft change, never submitted",
+      rfc: "rfc body",
+      changeType: "NORMAL",
+      status: "DRAFT",
+      ownerId: owner.userId,
+      riskLevel: "LOW",
+    },
+  });
+
+  const res = await APPROVE(
+    approveReq({ decision: "APPROVED", reason: "hi" }, guest),
+    P(draft.id, "technical"),
+  );
+  expect(res.status).toBe(403);
+  expect(await res.json()).toEqual({ error: "forbidden" });
+});
+
+test("a guest hitting POST /approve/<bad tier> → 403 (not 404)", async () => {
+  const id = await seedChange(owner.userId, { riskLevel: "LOW" });
+  await SUBMIT(submitReq(owner), P(id, ""));
+
+  const res = await APPROVE(
+    approveReq({ decision: "APPROVED", reason: "hi" }, guest),
+    P(id, "nonsense"),
+  );
+  expect(res.status).toBe(403);
+  expect(await res.json()).toEqual({ error: "forbidden" });
+});
+
 test("GET /api/approvals: an actor holding the current step's hat sees the PENDING request; a guest → 403", async () => {
   const id = await seedChange(owner.userId, { riskLevel: "HIGH" });
   await SUBMIT(submitReq(owner), P(id, ""));
