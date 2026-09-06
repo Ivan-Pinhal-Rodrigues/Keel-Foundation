@@ -6,11 +6,26 @@ import { isUniqueViolation } from "@/server/db/errors";
 import type { PrismaTransaction } from "@/server/db/tx";
 import { nextRef } from "@/server/ids/ref";
 import { getApprovalState } from "@/server/modules/approval/service";
+import { emitNotification } from "@/server/modules/notify/emit";
 import type { Actor } from "@/server/policy/actor";
 import { authorize } from "@/server/policy/authorize";
-import { ForbiddenError, NotFoundError } from "@/server/policy/errors";
+import {
+  ConflictError,
+  ForbiddenError,
+  NotFoundError,
+} from "@/server/policy/errors";
 import { requireInternal } from "@/server/policy/subjects/helpers";
-import { serializeChange, serializeChangeListItem } from "./serialize";
+import {
+  changeStatusLabel,
+  serializeChange,
+  serializeChangeListItem,
+} from "./serialize";
+import {
+  CHANGE_STAGES,
+  type GateInput,
+  assertTransition,
+  gateFor,
+} from "./state";
 
 /**
  * The change use cases: create, from-demand conversion, list, and get
@@ -349,4 +364,339 @@ export async function getChangeForActor(
     }));
 
   return serializeChange(row, { approval, actor, activity });
+}
+
+/**
+ * The lifecycle transitions (`plans/plan-03-change-approvals` Task 7):
+ * `advanceChange` (the general forward stage-advance, gated by `gateFor`),
+ * `scheduleChange` (set/adjust the change window, with the `APPROVAL → SCHEDULED`
+ * enter folded in), `rollbackChange` (`IMPLEMENTING → ROLLED_BACK`), and
+ * `recordPir` (write the record-of-fact post-implementation review). Each takes
+ * the caller's `tx` so the change row, its `AuditEvent`s, and any notification
+ * commit or roll back together. The `change.transition` / `change.schedule` /
+ * `change.pir` gate runs before the load, uniformly with the rest of the module.
+ */
+
+/** The one forward status out of each non-terminal stage (spec 03 §3). The
+ *  backward `APPROVAL → ASSESSING` (rejection) and `IMPLEMENTING → ROLLED_BACK`
+ *  edges are driven elsewhere. */
+const CHANGE_FORWARD: Partial<
+  Record<$Enums.ChangeStatus, $Enums.ChangeStatus>
+> = {
+  DRAFT: "ASSESSING",
+  ASSESSING: "APPROVAL",
+  APPROVAL: "SCHEDULED",
+  SCHEDULED: "IMPLEMENTING",
+  IMPLEMENTING: "PIR",
+  PIR: "CLOSED",
+};
+
+type GateSourceRow = {
+  rfc: string | null;
+  riskLevel: $Enums.Level | null;
+  impactAssessment: string | null;
+  rollbackPlan: string | null;
+  originatingDemandId: string | null;
+  windowStart: Date | null;
+  windowEnd: Date | null;
+  changeType: $Enums.ChangeType;
+  pir: { valueRealized: $Enums.ValueRealized; lessons: string } | null;
+};
+
+/** Build the synthetic `GateInput` the stage gates read — the change columns
+ *  plus the two free-checkbox acknowledgements the actor sends on `/advance`. */
+function gateInputFor(
+  row: GateSourceRow,
+  acknowledgements: Record<string, boolean> | undefined,
+): GateInput {
+  const acks = acknowledgements ?? {};
+  return {
+    rfc: row.rfc,
+    riskLevel: row.riskLevel,
+    impactAssessment: row.impactAssessment,
+    rollbackPlan: row.rollbackPlan,
+    originatingDemandId: row.originatingDemandId,
+    standaloneConfirmed: acks.standaloneConfirmed ?? false,
+    windowStart: row.windowStart,
+    windowEnd: row.windowEnd,
+    changeType: row.changeType,
+    valueRealized: row.pir?.valueRealized ?? null,
+    lessons: row.pir?.lessons ?? null,
+    wentToPlanAcknowledged: acks.wentToPlanAcknowledged ?? false,
+  };
+}
+
+export async function advanceChange(
+  actor: Actor,
+  tx: PrismaTransaction,
+  id: string,
+  input: {
+    from: $Enums.ChangeStatus;
+    acknowledgements?: Record<string, boolean>;
+  },
+): Promise<void> {
+  authorize(actor, "change.transition", { type: "change", id });
+
+  const row = await tx.change.findUnique({
+    where: { id },
+    include: { pir: true },
+  });
+  if (!row) throw new NotFoundError("not found");
+  if (input.from !== row.status) {
+    throw new ConflictError("the change moved since you loaded it");
+  }
+
+  const approval = await getApprovalState("change", id, tx);
+  const stage = CHANGE_STAGES.find((s) => s.status === row.status);
+  if (!stage) throw new ForbiddenError("the change is in a terminal state");
+
+  const gate = gateFor(
+    stage.key,
+    gateInputFor(row, input.acknowledgements),
+    approval.status,
+    new Date(),
+  );
+  if (!gate.canAdvance) {
+    throw new ForbiddenError(
+      gate.blockedReason ?? "the exit gate is not satisfied",
+    );
+  }
+
+  const to = CHANGE_FORWARD[row.status];
+  if (!to) throw new ForbiddenError("the change is in a terminal state");
+  assertTransition(row.status, to);
+
+  const now = new Date();
+  await tx.change.update({
+    where: { id },
+    data: {
+      status: to,
+      ...(to === "IMPLEMENTING" ? { implementedAt: now } : {}),
+      ...(to === "CLOSED" ? { closedAt: now } : {}),
+    },
+  });
+
+  await writeAudit(tx, {
+    actorId: actor.id,
+    action: "change.advanced",
+    subjectType: "Change",
+    subjectId: id,
+    payload: {
+      from: row.status,
+      to,
+      acknowledgements: input.acknowledgements ?? {},
+    },
+  });
+  if (to === "IMPLEMENTING") {
+    await writeAudit(tx, {
+      actorId: actor.id,
+      action: "change.implementing",
+      subjectType: "Change",
+      subjectId: id,
+      payload: {},
+    });
+  }
+  if (to === "CLOSED") {
+    await writeAudit(tx, {
+      actorId: actor.id,
+      action: "change.closed",
+      subjectType: "Change",
+      subjectId: id,
+      payload: {},
+    });
+  }
+
+  if (to === "SCHEDULED" || to === "IMPLEMENTING" || to === "PIR") {
+    await emitNotification(tx, {
+      recipients: { audience: "ALL_INTERNAL" },
+      kind: "STATUS_CHANGED",
+      subjectType: "change",
+      subjectId: id,
+      summary: `${row.ref} moved to ${changeStatusLabel(to)}`,
+      excludeActorId: actor.id,
+    });
+  }
+
+  if (to === "CLOSED") {
+    if (row.originatingDemandId) {
+      const demand = await tx.demand.findUnique({
+        where: { id: row.originatingDemandId },
+        select: { submittedById: true },
+      });
+      if (demand) {
+        await emitNotification(tx, {
+          recipients: { userIds: [demand.submittedById] },
+          kind: "STATUS_CHANGED",
+          subjectType: "demand",
+          subjectId: row.originatingDemandId,
+          summary: "Your request has been delivered",
+        });
+      }
+    }
+    const fixes = await tx.changeIncidentLink.findMany({
+      where: { changeId: id, kind: "FIXES" },
+      include: { incident: { select: { id: true, reportedById: true } } },
+    });
+    for (const link of fixes) {
+      await emitNotification(tx, {
+        recipients: { userIds: [link.incident.reportedById] },
+        kind: "STATUS_CHANGED",
+        subjectType: "incident",
+        subjectId: link.incident.id,
+        summary: "An issue affecting you has been fixed",
+      });
+    }
+  }
+}
+
+export async function scheduleChange(
+  actor: Actor,
+  tx: PrismaTransaction,
+  id: string,
+  input: { windowStart: Date; windowEnd: Date },
+): Promise<void> {
+  authorize(actor, "change.schedule", { type: "change", id });
+
+  const row = await tx.change.findUnique({ where: { id } });
+  if (!row) throw new NotFoundError("not found");
+  if (row.status !== "APPROVAL" && row.status !== "SCHEDULED") {
+    throw new ForbiddenError("the change is not ready to be scheduled");
+  }
+
+  const { windowStart, windowEnd } = input;
+  if (!(
+    windowStart.getTime() < windowEnd.getTime() &&
+    windowStart.getTime() > Date.now()
+  )) {
+    throw new ForbiddenError(
+      "the window must be a future range with start before end",
+    );
+  }
+
+  await tx.change.update({ where: { id }, data: { windowStart, windowEnd } });
+  await writeAudit(tx, {
+    actorId: actor.id,
+    action: "change.scheduled",
+    subjectType: "Change",
+    subjectId: id,
+    payload: { windowStart, windowEnd },
+  });
+
+  if (row.status === "APPROVAL") {
+    const approval = await getApprovalState("change", id, tx);
+    if (approval.status === "APPROVED" || row.changeType === "EMERGENCY") {
+      assertTransition("APPROVAL", "SCHEDULED");
+      await tx.change.update({
+        where: { id },
+        data: { status: "SCHEDULED" },
+      });
+      await writeAudit(tx, {
+        actorId: actor.id,
+        action: "change.advanced",
+        subjectType: "Change",
+        subjectId: id,
+        payload: { from: "APPROVAL", to: "SCHEDULED" },
+      });
+    } else {
+      throw new ForbiddenError(
+        "the change must be approved before it can be scheduled",
+      );
+    }
+  }
+}
+
+export async function rollbackChange(
+  actor: Actor,
+  tx: PrismaTransaction,
+  id: string,
+  input: { note: string },
+): Promise<void> {
+  authorize(actor, "change.transition", { type: "change", id });
+
+  const row = await tx.change.findUnique({ where: { id } });
+  if (!row) throw new NotFoundError("not found");
+  if (row.status !== "IMPLEMENTING") {
+    throw new ForbiddenError(
+      "only a change that is being implemented can be rolled back",
+    );
+  }
+
+  assertTransition("IMPLEMENTING", "ROLLED_BACK");
+  await tx.change.update({
+    where: { id },
+    data: { status: "ROLLED_BACK", closedAt: new Date() },
+  });
+  await writeAudit(tx, {
+    actorId: actor.id,
+    action: "change.rolled_back",
+    subjectType: "Change",
+    subjectId: id,
+    payload: { note: input.note.trim() },
+  });
+  await emitNotification(tx, {
+    recipients: { audience: "ALL_INTERNAL" },
+    kind: "STATUS_CHANGED",
+    subjectType: "change",
+    subjectId: id,
+    summary: `${row.ref} was rolled back`,
+    excludeActorId: actor.id,
+  });
+}
+
+export async function recordPir(
+  actor: Actor,
+  tx: PrismaTransaction,
+  id: string,
+  input: { valueRealized: $Enums.ValueRealized; lessons: string },
+): Promise<void> {
+  authorize(actor, "change.pir", { type: "change", id });
+
+  const row = await tx.change.findUnique({ where: { id } });
+  if (!row) throw new NotFoundError("not found");
+  if (row.status !== "PIR") {
+    throw new ForbiddenError("the change is not in review");
+  }
+
+  // `PostImplementationReview` is a record-of-fact table (INSERT + SELECT only
+  // for `keel_app`): only ever `.create` here, never `.update` / `.upsert`. The
+  // pre-check keeps the transaction clean — a caught P2002 would abort it
+  // (Postgres 25P02); the `try/catch` stays as a backstop for a genuine race.
+  const existing = await tx.postImplementationReview.findFirst({
+    where: { changeId: id },
+    select: { id: true },
+  });
+  if (existing) throw new ConflictError("a PIR is already recorded");
+
+  try {
+    await tx.postImplementationReview.create({
+      data: {
+        changeId: id,
+        valueRealized: input.valueRealized,
+        lessons: input.lessons.trim(),
+        reviewedById: actor.id,
+        reviewedAt: new Date(),
+      },
+    });
+  } catch (e) {
+    if (isUniqueViolation(e, "changeId")) {
+      throw new ConflictError("a PIR is already recorded");
+    }
+    throw e;
+  }
+
+  await writeAudit(tx, {
+    actorId: actor.id,
+    action: "change.pir_recorded",
+    subjectType: "Change",
+    subjectId: id,
+    payload: { valueRealized: input.valueRealized },
+  });
+  await emitNotification(tx, {
+    recipients: { audience: "ALL_INTERNAL" },
+    kind: "STATUS_CHANGED",
+    subjectType: "change",
+    subjectId: id,
+    summary: `${row.ref} post-implementation review recorded`,
+    excludeActorId: actor.id,
+  });
 }

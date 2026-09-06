@@ -1,15 +1,25 @@
+import type { Prisma } from "@prisma/client";
 import { expect, test } from "vitest";
 import { runWithContext } from "@/server/context";
+import type { PrismaTransaction } from "@/server/db/tx";
 import {
+  advanceChange,
   createChange,
   createChangeFromDemand,
   editChange,
   getChangeForActor,
   linkIncident,
   listChanges,
+  recordPir,
+  rollbackChange,
+  scheduleChange,
 } from "@/server/modules/change/service";
 import type { Actor, Hat } from "@/server/policy/actor";
-import { ForbiddenError, NotFoundError } from "@/server/policy/errors";
+import {
+  ConflictError,
+  ForbiddenError,
+  NotFoundError,
+} from "@/server/policy/errors";
 import { withTestDb } from "@/test/db";
 
 const db = withTestDb();
@@ -405,4 +415,271 @@ test("linkIncident with an unknown incidentId → NotFoundError", async () => {
       ),
     ),
   ).rejects.toBeInstanceOf(NotFoundError);
+});
+
+// --- Task 7: advance / schedule / rollback / PIR ------------------------------
+
+const tx = <T>(fn: (t: PrismaTransaction) => Promise<T>): Promise<T> =>
+  ctx(() => db().$transaction((t) => fn(t as PrismaTransaction)));
+
+async function seedChangeAt(
+  ownerActor: Actor,
+  patch: Prisma.ChangeUncheckedUpdateInput,
+): Promise<string> {
+  const { id } = await tx((t) =>
+    createChange(ownerActor, t, { title: "c", rfc: "an RFC body" }),
+  );
+  await db().change.update({ where: { id }, data: patch });
+  return id;
+}
+
+async function seedApproval(
+  changeId: string,
+  createdById: string,
+  status: "PENDING" | "APPROVED" | "REJECTED",
+): Promise<void> {
+  await db().approvalRequest.create({
+    data: {
+      subjectType: "change",
+      subjectId: changeId,
+      policyKey: "change.standard",
+      createdById,
+      status,
+      resolvedAt: status === "PENDING" ? null : new Date(),
+    },
+  });
+}
+
+test("advanceChange DRAFT→ASSESSING requires RFC + a demand link or standalone ack", async () => {
+  const dev = await seedInternal(["DEVELOPER"]);
+  const id = await seedChangeAt(dev.actor, { status: "DRAFT" });
+
+  await expect(
+    tx((t) => advanceChange(dev.actor, t, id, { from: "DRAFT" })),
+  ).rejects.toBeInstanceOf(ForbiddenError);
+
+  await tx((t) =>
+    advanceChange(dev.actor, t, id, {
+      from: "DRAFT",
+      acknowledgements: { standaloneConfirmed: true },
+    }),
+  );
+
+  const row = await db().change.findUniqueOrThrow({ where: { id } });
+  expect(row.status).toBe("ASSESSING");
+  const audit = await db().auditEvent.findFirstOrThrow({
+    where: { action: "change.advanced", subjectId: id },
+  });
+  expect(audit.payload).toMatchObject({ from: "DRAFT", to: "ASSESSING" });
+});
+
+test("advanceChange ASSESSING→APPROVAL is blocked without a rollback plan", async () => {
+  const dev = await seedInternal(["DEVELOPER"]);
+  const id = await seedChangeAt(dev.actor, {
+    status: "ASSESSING",
+    riskLevel: "LOW",
+    impactAssessment: "minimal",
+  });
+
+  await expect(
+    tx((t) => advanceChange(dev.actor, t, id, { from: "ASSESSING" })),
+  ).rejects.toBeInstanceOf(ForbiddenError);
+
+  await db().change.update({
+    where: { id },
+    data: { rollbackPlan: "revert the release" },
+  });
+  await tx((t) => advanceChange(dev.actor, t, id, { from: "ASSESSING" }));
+  const row = await db().change.findUniqueOrThrow({ where: { id } });
+  expect(row.status).toBe("APPROVAL");
+});
+
+test("advanceChange APPROVAL→SCHEDULED blocked while the approval request is PENDING; allowed once APPROVED", async () => {
+  const dev = await seedInternal(["DEVELOPER"]);
+  const id = await seedChangeAt(dev.actor, {
+    status: "APPROVAL",
+    riskLevel: "LOW",
+    impactAssessment: "minimal",
+    rollbackPlan: "revert",
+  });
+  await seedApproval(id, dev.id, "PENDING");
+
+  await expect(
+    tx((t) => advanceChange(dev.actor, t, id, { from: "APPROVAL" })),
+  ).rejects.toBeInstanceOf(ForbiddenError);
+
+  await db().approvalRequest.updateMany({
+    where: { subjectId: id },
+    data: { status: "APPROVED", resolvedAt: new Date() },
+  });
+  await tx((t) => advanceChange(dev.actor, t, id, { from: "APPROVAL" }));
+  const row = await db().change.findUniqueOrThrow({ where: { id } });
+  expect(row.status).toBe("SCHEDULED");
+});
+
+test("an EMERGENCY change can advance APPROVAL→SCHEDULED with a still-PENDING request", async () => {
+  const dev = await seedInternal(["DEVELOPER"]);
+  const id = await seedChangeAt(dev.actor, {
+    status: "APPROVAL",
+    changeType: "EMERGENCY",
+    riskLevel: "HIGH",
+    impactAssessment: "urgent",
+    rollbackPlan: "revert",
+  });
+  await seedApproval(id, dev.id, "PENDING");
+
+  await tx((t) => advanceChange(dev.actor, t, id, { from: "APPROVAL" }));
+  const row = await db().change.findUniqueOrThrow({ where: { id } });
+  expect(row.status).toBe("SCHEDULED");
+});
+
+test("advanceChange with a stale `from` → ConflictError", async () => {
+  const dev = await seedInternal(["DEVELOPER"]);
+  const id = await seedChangeAt(dev.actor, { status: "DRAFT" });
+
+  await expect(
+    tx((t) => advanceChange(dev.actor, t, id, { from: "ASSESSING" })),
+  ).rejects.toBeInstanceOf(ConflictError);
+});
+
+test("scheduleChange rejects a past window and an end-before-start window; a valid future window audits change.scheduled", async () => {
+  const dev = await seedInternal(["DEVELOPER"]);
+  const id = await seedChangeAt(dev.actor, {
+    status: "SCHEDULED",
+    rollbackPlan: "revert",
+  });
+  const day = 86_400_000;
+
+  await expect(
+    tx((t) =>
+      scheduleChange(dev.actor, t, id, {
+        windowStart: new Date(Date.now() - 2 * day),
+        windowEnd: new Date(Date.now() - day),
+      }),
+    ),
+  ).rejects.toBeInstanceOf(ForbiddenError);
+
+  await expect(
+    tx((t) =>
+      scheduleChange(dev.actor, t, id, {
+        windowStart: new Date(Date.now() + 2 * day),
+        windowEnd: new Date(Date.now() + day),
+      }),
+    ),
+  ).rejects.toBeInstanceOf(ForbiddenError);
+
+  const windowStart = new Date(Date.now() + day);
+  const windowEnd = new Date(Date.now() + 2 * day);
+  await tx((t) => scheduleChange(dev.actor, t, id, { windowStart, windowEnd }));
+
+  const row = await db().change.findUniqueOrThrow({ where: { id } });
+  expect(row.windowStart?.getTime()).toBe(windowStart.getTime());
+  const audit = await db().auditEvent.findMany({
+    where: { action: "change.scheduled", subjectId: id },
+  });
+  expect(audit).toHaveLength(1);
+});
+
+test("rollbackChange from IMPLEMENTING → ROLLED_BACK, change.rolled_back audited, all internal users notified; a terminal change rejects further transitions", async () => {
+  const dev = await seedInternal(["DEVELOPER"]);
+  const other = await seedInternal(["DEVELOPER"]);
+  const id = await seedChangeAt(dev.actor, {
+    status: "IMPLEMENTING",
+    rollbackPlan: "revert",
+  });
+
+  await tx((t) =>
+    rollbackChange(dev.actor, t, id, { note: "  the deploy failed  " }),
+  );
+
+  const row = await db().change.findUniqueOrThrow({ where: { id } });
+  expect(row.status).toBe("ROLLED_BACK");
+  expect(row.closedAt).not.toBeNull();
+  const audit = await db().auditEvent.findFirstOrThrow({
+    where: { action: "change.rolled_back", subjectId: id },
+  });
+  expect(audit.payload).toEqual({ note: "the deploy failed" });
+
+  const notes = await db().notification.findMany({
+    where: { subjectId: id, kind: "STATUS_CHANGED" },
+  });
+  expect(notes.map((n) => n.userId)).toContain(other.id);
+  expect(notes.map((n) => n.userId)).not.toContain(dev.id);
+
+  await expect(
+    tx((t) => advanceChange(dev.actor, t, id, { from: "ROLLED_BACK" })),
+  ).rejects.toBeInstanceOf(ForbiddenError);
+});
+
+test("recordPir creates the PIR row (once), audits change.pir_recorded; a second recordPir → ConflictError", async () => {
+  const approver = await seedInternal(["BUSINESS_APPROVER"]);
+  const dev = await seedInternal(["DEVELOPER"]);
+  const id = await seedChangeAt(dev.actor, { status: "PIR" });
+
+  await tx((t) =>
+    recordPir(approver.actor, t, id, {
+      valueRealized: "YES",
+      lessons: "  went smoothly  ",
+    }),
+  );
+
+  const pir = await db().postImplementationReview.findFirstOrThrow({
+    where: { changeId: id },
+  });
+  expect(pir.valueRealized).toBe("YES");
+  expect(pir.lessons).toBe("went smoothly");
+  expect(pir.reviewedById).toBe(approver.id);
+  const audit = await db().auditEvent.findFirstOrThrow({
+    where: { action: "change.pir_recorded", subjectId: id },
+  });
+  expect(audit.payload).toEqual({ valueRealized: "YES" });
+
+  await expect(
+    tx((t) =>
+      recordPir(approver.actor, t, id, {
+        valueRealized: "NO",
+        lessons: "second",
+      }),
+    ),
+  ).rejects.toBeInstanceOf(ConflictError);
+});
+
+test("advancing to CLOSED with an originating demand notifies the demand's submitter with a 'Delivered' summary", async () => {
+  const dev = await seedInternal(["DEVELOPER"]);
+  const submitter = await seedInternal([]);
+  const demand = await seedDemand(submitter.id);
+  const id = await seedChangeAt(dev.actor, {
+    status: "PIR",
+    originatingDemandId: demand.id,
+  });
+  await db().postImplementationReview.create({
+    data: {
+      changeId: id,
+      valueRealized: "YES",
+      lessons: "delivered value",
+      reviewedById: dev.id,
+      reviewedAt: new Date(),
+    },
+  });
+
+  await tx((t) => advanceChange(dev.actor, t, id, { from: "PIR" }));
+
+  const row = await db().change.findUniqueOrThrow({ where: { id } });
+  expect(row.status).toBe("CLOSED");
+  expect(row.closedAt).not.toBeNull();
+
+  const note = await db().notification.findFirstOrThrow({
+    where: {
+      userId: submitter.id,
+      subjectType: "demand",
+      subjectId: demand.id,
+    },
+  });
+  expect((note.payload as { summary: string }).summary).toBe(
+    "Your request has been delivered",
+  );
+  const closed = await db().auditEvent.findMany({
+    where: { action: "change.closed", subjectId: id },
+  });
+  expect(closed).toHaveLength(1);
 });

@@ -55,6 +55,42 @@ export type LinkIncidentBody = z.infer<typeof linkIncidentBody>;
  * filtered". (`z.coerce.boolean()` would treat any non-empty string, `"false"`
  * included, as `true` — plan-02's fix wave established this form.)
  */
+/**
+ * `POST /api/changes/:id/advance` — advance the change one stage. `from` is the
+ * status the caller last saw (a stale value is a 409); `acknowledgements` carries
+ * the free-checkbox gate values (`standaloneConfirmed`, `wentToPlanAcknowledged`).
+ */
+export const advanceChangeBody = z.object({
+  from: z.enum(CHANGE_STATUSES),
+  acknowledgements: z.record(z.string(), z.boolean()).optional(),
+});
+export type AdvanceChangeBody = z.infer<typeof advanceChangeBody>;
+
+/** `POST /api/changes/:id/schedule` — set/adjust the change window. */
+export const scheduleChangeBody = z
+  .object({
+    windowStart: z.iso.datetime(),
+    windowEnd: z.iso.datetime(),
+  })
+  .transform((b) => ({
+    windowStart: new Date(b.windowStart),
+    windowEnd: new Date(b.windowEnd),
+  }));
+export type ScheduleChangeBody = z.infer<typeof scheduleChangeBody>;
+
+/** `POST /api/changes/:id/rollback` — roll an implementing change back. */
+export const rollbackChangeBody = z.object({
+  note: z.string().trim().min(1).max(5000),
+});
+export type RollbackChangeBody = z.infer<typeof rollbackChangeBody>;
+
+/** `POST /api/changes/:id/pir` — record the post-implementation review. */
+export const pirBody = z.object({
+  valueRealized: z.enum(["YES", "PARTIAL", "NO"]),
+  lessons: z.string().trim().min(1).max(10000),
+});
+export type PirBody = z.infer<typeof pirBody>;
+
 export const listChangesQuery = z.object({
   status: z.enum(CHANGE_STATUSES).optional(),
   mine: z

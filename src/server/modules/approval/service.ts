@@ -113,7 +113,7 @@ export type ApprovalStateView = {
 export async function getApprovalState(
   subjectType: string,
   subjectId: string,
-  client: PrismaClient = prisma,
+  client: PrismaClient | PrismaTransaction = prisma,
 ): Promise<ApprovalStateView> {
   const request = await client.approvalRequest.findFirst({
     where: { subjectType, subjectId },
