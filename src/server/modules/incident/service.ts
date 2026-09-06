@@ -1,16 +1,18 @@
-import type { $Enums, PrismaClient } from "@prisma/client";
+import type { $Enums, Prisma, PrismaClient } from "@prisma/client";
 import { auditActionLabel, guestAuditActionLabel } from "@/server/audit/labels";
 import { writeAudit } from "@/server/audit/write";
 import { prisma } from "@/server/db/client";
 import type { PrismaTransaction } from "@/server/db/tx";
 import { nextRef } from "@/server/ids/ref";
+import { addComment } from "@/server/modules/comment";
 import { emitNotification } from "@/server/modules/notify/emit";
 import { type Actor, isInternal } from "@/server/policy/actor";
 import { authorize } from "@/server/policy/authorize";
-import { NotFoundError } from "@/server/policy/errors";
+import { ForbiddenError, NotFoundError } from "@/server/policy/errors";
 import { assertVisibleToGuest, scopeToClient } from "@/server/policy/scope";
 import { dueAtFrom, priorityFor } from "./priority";
 import { serializeIncident } from "./serialize";
+import { assertTransition } from "./state";
 
 /**
  * The incident use cases: create (internal + guest), list, get, and the linked
@@ -231,4 +233,143 @@ export async function incidentClientId(
     select: { clientId: true },
   });
   return row?.clientId ?? null;
+}
+
+/**
+ * The categorise + assign writes (`plans/plan-02-incident.md` Task 5). Each takes
+ * the caller's `tx` so the incident row, its `AuditEvent`, and any notification
+ * or comment commit or roll back together. Gate before the load, uniformly with
+ * the demand module: an unauthorised caller is denied whether or not the id
+ * exists, so the endpoint cannot be used to probe for incidents.
+ */
+
+/** Load an incident by id or 404. */
+async function loadIncidentOr404(tx: PrismaTransaction, id: string) {
+  const row = await tx.incident.findUnique({ where: { id } });
+  if (!row) throw new NotFoundError("not found");
+  return row;
+}
+
+/**
+ * Re-categorise an incident: set impact / urgency and the derived priority.
+ *
+ * Plan ruling 5 — the categorisation lock: while the incident is `NEW` or
+ * `ASSIGNED`, impact / urgency are freely editable and `dueAt` is recomputed
+ * from the new priority. Once work has started (`IN_PROGRESS` or later) a
+ * non-empty `reason` is required; it is written to the `incident.categorized`
+ * audit payload and added as an internal (client-invisible) comment, and
+ * `dueAt` is left untouched.
+ */
+export async function categorizeIncident(
+  actor: Actor,
+  tx: PrismaTransaction,
+  id: string,
+  input: { impact: $Enums.Level; urgency: $Enums.Level; reason?: string },
+): Promise<void> {
+  authorize(actor, "incident.categorize", { type: "incident", id });
+  const row = await loadIncidentOr404(tx, id);
+
+  const locked = row.status !== "NEW" && row.status !== "ASSIGNED";
+  const reason = input.reason?.trim();
+  if (locked && !reason) {
+    throw new ForbiddenError(
+      "categorisation is locked once work has started — a reason is required",
+    );
+  }
+
+  const priority = priorityFor(input.impact, input.urgency);
+  // The SLA clock only moves while the incident is pre-work.
+  const nextDueAt = locked ? row.dueAt : dueAtFrom(priority, row.createdAt);
+
+  const data: Prisma.IncidentUpdateInput = {
+    impact: input.impact,
+    urgency: input.urgency,
+    priority,
+    ...(locked ? {} : { dueAt: nextDueAt }),
+  };
+  await tx.incident.update({ where: { id }, data });
+
+  await writeAudit(tx, {
+    actorId: actor.id,
+    action: "incident.categorized",
+    subjectType: "Incident",
+    subjectId: id,
+    payload: {
+      impact: input.impact,
+      urgency: input.urgency,
+      priority,
+      dueAt: nextDueAt,
+      ...(reason ? { reason } : {}),
+    },
+  });
+
+  if (locked && reason) {
+    await addComment(tx, {
+      actor,
+      subject: { type: "Incident", id, clientId: row.clientId },
+      body: `Re-categorised: ${reason}`,
+      visibleToClient: false,
+    });
+  }
+}
+
+/**
+ * Assign an incident to an internal user.
+ *
+ * Plan ruling 4 — the assignee must be an active internal user; assigning an
+ * incident that is still `NEW` also advances it to `ASSIGNED` in the same write.
+ * Re-assignment is allowed while `NEW` / `ASSIGNED` / `IN_PROGRESS`; a
+ * `RESOLVED` or `CLOSED` incident cannot be assigned. The new assignee is
+ * notified.
+ */
+export async function assignIncident(
+  actor: Actor,
+  tx: PrismaTransaction,
+  id: string,
+  input: { assigneeId: string },
+): Promise<void> {
+  authorize(actor, "incident.assign", { type: "incident", id });
+  const row = await loadIncidentOr404(tx, id);
+
+  if (row.status === "RESOLVED" || row.status === "CLOSED") {
+    throw new ForbiddenError("cannot assign a resolved or closed incident");
+  }
+
+  const assignee = await tx.user.findUnique({
+    where: { id: input.assigneeId },
+    select: { kind: true, isActive: true },
+  });
+  if (!assignee || assignee.kind !== "INTERNAL" || !assignee.isActive) {
+    throw new ForbiddenError("assignee must be an active internal user");
+  }
+
+  const nextStatus: $Enums.IncidentStatus =
+    row.status === "NEW" ? "ASSIGNED" : row.status;
+  const advanced = nextStatus !== row.status;
+  if (advanced) assertTransition(row.status, nextStatus);
+
+  await tx.incident.update({
+    where: { id },
+    data: { assigneeId: input.assigneeId, status: nextStatus },
+  });
+
+  await writeAudit(tx, {
+    actorId: actor.id,
+    action: "incident.assigned",
+    subjectType: "Incident",
+    subjectId: id,
+    payload: {
+      assigneeId: input.assigneeId,
+      ...(advanced ? { from: row.status, to: nextStatus } : {}),
+    },
+  });
+
+  await emitNotification(tx, {
+    recipients: { userIds: [input.assigneeId] },
+    kind: "ASSIGNED",
+    subjectType: "Incident",
+    subjectId: id,
+    summary: `You were assigned ${row.ref}: ${row.title}`,
+    excludeActorId: actor.id,
+  });
 }

@@ -1,13 +1,16 @@
 import { expect, test } from "vitest";
 import { withTestDb } from "@/test/db";
 import { runWithContext } from "@/server/context";
+import { dueAtFrom } from "@/server/modules/incident/priority";
 import {
+  assignIncident,
+  categorizeIncident,
   createIncident,
   getIncidentForActor,
   listIncidents,
 } from "@/server/modules/incident/service";
 import type { Actor, Hat } from "@/server/policy/actor";
-import { NotFoundError } from "@/server/policy/errors";
+import { ForbiddenError, NotFoundError } from "@/server/policy/errors";
 
 const db = withTestDb();
 const ctx = <T>(fn: () => Promise<T>): Promise<T> =>
@@ -241,4 +244,210 @@ test("listIncidents ?overdue filter and ?mine filter", async () => {
   });
   const mineList = await listIncidents(dev.actor, { mine: true }, db());
   expect(mineList.map((i) => i.id)).toEqual([fresh.id]);
+});
+
+/** Seed an incident row directly, with sensible defaults the caller can override. */
+async function seedIncident(
+  reportedById: string,
+  overrides: Partial<{
+    status: "NEW" | "ASSIGNED" | "IN_PROGRESS" | "RESOLVED" | "CLOSED";
+    impact: "LOW" | "MEDIUM" | "HIGH";
+    urgency: "LOW" | "MEDIUM" | "HIGH";
+    priority: "P1" | "P2" | "P3" | "P4";
+    createdAt: Date;
+    dueAt: Date;
+    assigneeId: string;
+  }> = {},
+) {
+  const createdAt = overrides.createdAt ?? new Date("2026-01-01T00:00:00.000Z");
+  const priority = overrides.priority ?? "P4";
+  return db().incident.create({
+    data: {
+      ref: `INC-${rand()}`,
+      title: "seeded",
+      description: "d",
+      affectedService: "s",
+      impact: overrides.impact ?? "LOW",
+      urgency: overrides.urgency ?? "LOW",
+      priority,
+      status: overrides.status ?? "NEW",
+      reportedById,
+      assigneeId: overrides.assigneeId ?? null,
+      dueAt: overrides.dueAt ?? dueAtFrom(priority, createdAt),
+      overdue: false,
+      createdAt,
+    },
+  });
+}
+
+test("categorize while NEW: recomputes priority and dueAt, incident.categorized audited", async () => {
+  const dev = await seedInternal(["DEVELOPER"]);
+  const createdAt = new Date("2026-01-01T00:00:00.000Z");
+  const inc = await seedIncident(dev.id, { createdAt });
+
+  await ctx(() =>
+    db().$transaction((tx) =>
+      categorizeIncident(dev.actor, tx, inc.id, {
+        impact: "HIGH",
+        urgency: "HIGH",
+      }),
+    ),
+  );
+
+  const row = await db().incident.findUniqueOrThrow({ where: { id: inc.id } });
+  expect(row.priority).toBe("P1");
+  expect(row.dueAt.getTime() - createdAt.getTime()).toBe(4 * 60 * 60 * 1000);
+
+  const audit = await db().auditEvent.findMany({
+    where: { action: "incident.categorized", subjectId: inc.id },
+  });
+  expect(audit).toHaveLength(1);
+  expect(audit[0]!.payload).toMatchObject({
+    impact: "HIGH",
+    urgency: "HIGH",
+    priority: "P1",
+  });
+});
+
+test("categorize after work started requires a reason; the reason is audited and added as an internal comment; dueAt is NOT recomputed", async () => {
+  const dev = await seedInternal(["DEVELOPER"]);
+  const frozenDue = new Date("2026-03-03T03:03:03.000Z");
+  const inc = await seedIncident(dev.id, {
+    status: "IN_PROGRESS",
+    dueAt: frozenDue,
+  });
+
+  await expect(
+    ctx(() =>
+      db().$transaction((tx) =>
+        categorizeIncident(dev.actor, tx, inc.id, {
+          impact: "HIGH",
+          urgency: "HIGH",
+        }),
+      ),
+    ),
+  ).rejects.toBeInstanceOf(ForbiddenError);
+
+  await ctx(() =>
+    db().$transaction((tx) =>
+      categorizeIncident(dev.actor, tx, inc.id, {
+        impact: "HIGH",
+        urgency: "HIGH",
+        reason: "root cause reclassified after investigation",
+      }),
+    ),
+  );
+
+  const row = await db().incident.findUniqueOrThrow({ where: { id: inc.id } });
+  expect(row.priority).toBe("P1");
+  expect(row.dueAt.getTime()).toBe(frozenDue.getTime());
+
+  const comments = await db().comment.findMany({
+    where: { subjectType: "Incident", subjectId: inc.id },
+  });
+  expect(comments).toHaveLength(1);
+  expect(comments[0]!.visibleToClient).toBe(false);
+
+  const audit = await db().auditEvent.findMany({
+    where: { action: "incident.categorized", subjectId: inc.id },
+  });
+  expect(audit).toHaveLength(1);
+  expect(audit[0]!.payload).toMatchObject({
+    reason: "root cause reclassified after investigation",
+  });
+});
+
+test("assign to an internal user: NEW → ASSIGNED, assignee notified, incident.assigned audited", async () => {
+  const dev = await seedInternal(["DEVELOPER"]);
+  const assignee = await seedInternal([]);
+  const inc = await seedIncident(dev.id, { status: "NEW" });
+
+  await ctx(() =>
+    db().$transaction((tx) =>
+      assignIncident(dev.actor, tx, inc.id, { assigneeId: assignee.id }),
+    ),
+  );
+
+  const row = await db().incident.findUniqueOrThrow({ where: { id: inc.id } });
+  expect(row.status).toBe("ASSIGNED");
+  expect(row.assigneeId).toBe(assignee.id);
+
+  const notes = await db().notification.findMany({
+    where: { subjectId: inc.id, kind: "ASSIGNED" },
+  });
+  expect(notes.filter((n) => n.userId === assignee.id)).toHaveLength(1);
+
+  const audit = await db().auditEvent.findMany({
+    where: { action: "incident.assigned", subjectId: inc.id },
+  });
+  expect(audit).toHaveLength(1);
+  expect(audit[0]!.payload).toMatchObject({
+    assigneeId: assignee.id,
+    from: "NEW",
+    to: "ASSIGNED",
+  });
+});
+
+test("assigning a guest user is rejected (ForbiddenError)", async () => {
+  const dev = await seedInternal(["DEVELOPER"]);
+  const { guest } = await seedClientAndGuest();
+  const inc = await seedIncident(dev.id, { status: "NEW" });
+
+  await expect(
+    ctx(() =>
+      db().$transaction((tx) =>
+        assignIncident(dev.actor, tx, inc.id, { assigneeId: guest.id }),
+      ),
+    ),
+  ).rejects.toBeInstanceOf(ForbiddenError);
+
+  const row = await db().incident.findUniqueOrThrow({ where: { id: inc.id } });
+  expect(row.status).toBe("NEW");
+  expect(row.assigneeId).toBeNull();
+});
+
+test("assigning a RESOLVED incident is rejected", async () => {
+  const dev = await seedInternal(["DEVELOPER"]);
+  const assignee = await seedInternal([]);
+  const inc = await seedIncident(dev.id, { status: "RESOLVED" });
+
+  await expect(
+    ctx(() =>
+      db().$transaction((tx) =>
+        assignIncident(dev.actor, tx, inc.id, { assigneeId: assignee.id }),
+      ),
+    ),
+  ).rejects.toBeInstanceOf(ForbiddenError);
+});
+
+test("re-assign while ASSIGNED keeps the status and re-notifies the new assignee", async () => {
+  const dev = await seedInternal(["DEVELOPER"]);
+  const first = await seedInternal([]);
+  const second = await seedInternal([]);
+  const inc = await seedIncident(dev.id, {
+    status: "ASSIGNED",
+    assigneeId: first.id,
+  });
+
+  await ctx(() =>
+    db().$transaction((tx) =>
+      assignIncident(dev.actor, tx, inc.id, { assigneeId: second.id }),
+    ),
+  );
+
+  const row = await db().incident.findUniqueOrThrow({ where: { id: inc.id } });
+  expect(row.status).toBe("ASSIGNED");
+  expect(row.assigneeId).toBe(second.id);
+
+  const notes = await db().notification.findMany({
+    where: { subjectId: inc.id, kind: "ASSIGNED", userId: second.id },
+  });
+  expect(notes).toHaveLength(1);
+
+  const audit = await db().auditEvent.findMany({
+    where: { action: "incident.assigned", subjectId: inc.id },
+  });
+  expect(audit).toHaveLength(1);
+  expect(audit[0]!.payload).toMatchObject({ assigneeId: second.id });
+  expect(audit[0]!.payload).not.toHaveProperty("from");
 });
