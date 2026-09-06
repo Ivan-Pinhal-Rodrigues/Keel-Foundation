@@ -33,3 +33,7 @@ export class SegregationError extends Error {
     super("segregation of duties");
   }
 }
+
+/** The subject is in a state that forbids this operation right now (an
+ *  approval step that is not current, a request already resolved). → 409. */
+export class ConflictError extends Error {}

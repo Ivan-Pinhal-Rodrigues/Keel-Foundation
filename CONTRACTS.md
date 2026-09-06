@@ -748,6 +748,7 @@ export function mapError(e: unknown): Response;
 | `NotFoundError`        | 404    | `{ error: "not_found" }`                   |
 | `GoneError`            | 410    | `{ error: "gone" }`                        |
 | `SegregationError`     | 409    | `{ error: "segregation", overrideAction }` |
+| `ConflictError`        | 409    | `{ error: "conflict" }`                    |
 | anything else          | 500    | `{ error: "internal" }`                    |
 
 ### `src/lib/api/client.ts`

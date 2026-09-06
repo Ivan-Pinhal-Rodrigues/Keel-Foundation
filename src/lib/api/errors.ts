@@ -6,6 +6,7 @@ import {
   GoneError,
   NotFoundError,
   SegregationError,
+  ConflictError,
 } from "@/server/policy/errors";
 import { logger } from "@/server/log";
 
@@ -43,6 +44,9 @@ export function mapError(e: unknown): Response {
       { error: "segregation", overrideAction: e.overrideAction },
       { status: 409 },
     );
+  }
+  if (e instanceof ConflictError) {
+    return NextResponse.json({ error: "conflict" }, { status: 409 });
   }
   logger.error({ err: e }, "unhandled error in request handler");
   return NextResponse.json({ error: "internal" }, { status: 500 });

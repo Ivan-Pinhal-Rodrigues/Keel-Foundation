@@ -6,6 +6,7 @@ import {
   NotFoundError,
   GoneError,
   SegregationError,
+  ConflictError,
 } from "@/server/policy/errors";
 import { UnauthenticatedError } from "@/server/auth/actor";
 
@@ -46,6 +47,11 @@ test("SegregationError → 409 with overrideAction", async () => {
     error: "segregation",
     overrideAction: "demand.decide.override",
   });
+});
+test("ConflictError → 409 { error: conflict }", async () => {
+  const r = mapError(new ConflictError("x"));
+  expect(r.status).toBe(409);
+  expect(await body(r)).toEqual({ error: "conflict" });
 });
 test("an unknown error → 500 { error: internal }", async () => {
   const r = mapError(new Error("boom"));
