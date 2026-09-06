@@ -42,6 +42,17 @@ const NAV: NavItem[] = [
       </svg>
     ),
   },
+  {
+    key: "approvals",
+    label: "Approvals",
+    href: "/approvals",
+    icon: (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z" />
+        <path d="m8.5 12 2.5 2.5 4.5-4.5" />
+      </svg>
+    ),
+  },
 ];
 
 export function AppShellChrome({
