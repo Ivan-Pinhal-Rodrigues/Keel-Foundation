@@ -5,7 +5,11 @@ import { prisma } from "@/server/db/client";
 import { isUniqueViolation } from "@/server/db/errors";
 import type { PrismaTransaction } from "@/server/db/tx";
 import { nextRef } from "@/server/ids/ref";
-import { getApprovalState } from "@/server/modules/approval/service";
+import {
+  cancelRequest,
+  getApprovalState,
+  openApprovalRequest,
+} from "@/server/modules/approval/service";
 import { emitNotification } from "@/server/modules/notify/emit";
 import type { Actor } from "@/server/policy/actor";
 import { authorize } from "@/server/policy/authorize";
@@ -712,4 +716,127 @@ export async function recordPir(
     summary: `${row.ref} post-implementation review recorded`,
     excludeActorId: actor.id,
   });
+}
+
+/**
+ * Submit-for-approval + the narrow read the approve route needs
+ * (`plans/plan-03-change-approvals` Task 8).
+ *
+ * `submitForApproval` opens the approval request (one TECHNICAL_APPROVER step
+ * for a standard change, TECHNICAL then BUSINESS for a HIGH-risk one) and moves
+ * the change `ASSESSING → APPROVAL`. It runs on the caller's `tx` so the request
+ * rows, the change update, and every `AuditEvent` commit or roll back together.
+ * The `change.submit_for_approval` rule is owner-only, so the owner id is loaded
+ * before the gate.
+ */
+export async function submitForApproval(
+  actor: Actor,
+  tx: PrismaTransaction,
+  id: string,
+): Promise<void> {
+  const row = await tx.change.findUnique({
+    where: { id },
+    select: {
+      ownerId: true,
+      status: true,
+      riskLevel: true,
+      rollbackPlan: true,
+      impactAssessment: true,
+    },
+  });
+  authorize(actor, "change.submit_for_approval", {
+    type: "change",
+    id,
+    ownerId: row?.ownerId,
+  });
+  if (!row) throw new NotFoundError("not found");
+
+  if (row.status !== "ASSESSING") {
+    throw new ForbiddenError("the change is not ready for approval");
+  }
+  if (
+    !row.rollbackPlan?.trim() ||
+    row.riskLevel == null ||
+    !row.impactAssessment?.trim()
+  ) {
+    throw new ForbiddenError(
+      "risk, impact, and a rollback plan are required before approval",
+    );
+  }
+
+  // Idempotent — clears any stale PENDING request left by a prior rejected round.
+  await cancelRequest(tx, {
+    subjectType: "change",
+    subjectId: id,
+    reason: "resubmitted",
+    actorId: actor.id,
+  });
+
+  const highRisk = row.riskLevel === "HIGH";
+  const policyKey = highRisk ? "change.high_risk" : "change.standard";
+  await openApprovalRequest(tx, {
+    subjectType: "change",
+    subjectId: id,
+    createdById: row.ownerId,
+    policyKey,
+    steps: highRisk
+      ? [
+          { order: 1, requiredHat: "TECHNICAL_APPROVER" },
+          { order: 2, requiredHat: "BUSINESS_APPROVER" },
+        ]
+      : [{ order: 1, requiredHat: "TECHNICAL_APPROVER" }],
+  });
+
+  assertTransition("ASSESSING", "APPROVAL");
+  await tx.change.update({ where: { id }, data: { status: "APPROVAL" } });
+
+  await writeAudit(tx, {
+    actorId: actor.id,
+    action: "change.submitted_for_approval",
+    subjectType: "Change",
+    subjectId: id,
+    payload: { policyKey },
+  });
+  await writeAudit(tx, {
+    actorId: actor.id,
+    action: "change.advanced",
+    subjectType: "Change",
+    subjectId: id,
+    payload: { from: "ASSESSING", to: "APPROVAL" },
+  });
+}
+
+/**
+ * The narrow read the `POST /api/changes/:id/approve/:tier` route needs to build
+ * the `authorize` subject and locate the step awaiting a decision. `currentStepId`
+ * / `currentRequiredHat` are non-null ONLY while the request is PENDING — a
+ * REJECTED / CANCELLED / APPROVED request's `currentStep` still points at an
+ * unfilled step, and no decision may be offered on it.
+ */
+export async function changeApprovalContext(
+  id: string,
+  client: PrismaClient = prisma,
+): Promise<{
+  ownerId: string;
+  riskLevel: $Enums.Level | null;
+  status: $Enums.ChangeStatus;
+  currentStepId: string | null;
+  currentRequiredHat: $Enums.Hat | null;
+}> {
+  const row = await client.change.findUnique({
+    where: { id },
+    select: { ownerId: true, riskLevel: true, status: true },
+  });
+  if (!row) throw new NotFoundError("not found");
+
+  const approval = await getApprovalState("change", id, client);
+  const step = approval.status === "PENDING" ? approval.currentStep : null;
+
+  return {
+    ownerId: row.ownerId,
+    riskLevel: row.riskLevel,
+    status: row.status,
+    currentStepId: step?.id ?? null,
+    currentRequiredHat: step?.requiredHat ?? null,
+  };
 }

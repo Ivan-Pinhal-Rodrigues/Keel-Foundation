@@ -219,6 +219,73 @@ export async function cancelRequest(
   });
 }
 
+/**
+ * Every PENDING approval request whose CURRENT step's `requiredHat` the actor
+ * holds — the data behind `GET /api/approvals` (spec 04 §7). `needsOverride` is
+ * true when the actor is the request's creator (a decision would need the
+ * single-approver justification). For a `change` subject the `Change` row is
+ * joined for its ref / title. A rejected or resolved request never appears.
+ */
+export async function listApprovalsForActor(
+  actor: Actor,
+  client: PrismaClient = prisma,
+): Promise<
+  {
+    subjectType: string;
+    subjectId: string;
+    subjectRef: string;
+    subjectTitle: string;
+    policyKey: string;
+    currentRequiredHat: $Enums.Hat;
+    needsOverride: boolean;
+  }[]
+> {
+  const requests = await client.approvalRequest.findMany({
+    where: { status: "PENDING" },
+    orderBy: { createdAt: "desc" },
+    include: { steps: { orderBy: { order: "asc" } } },
+  });
+
+  const out: {
+    subjectType: string;
+    subjectId: string;
+    subjectRef: string;
+    subjectTitle: string;
+    policyKey: string;
+    currentRequiredHat: $Enums.Hat;
+    needsOverride: boolean;
+  }[] = [];
+
+  for (const request of requests) {
+    const step = currentStep(request.steps);
+    if (!step || !actor.hats.includes(step.requiredHat)) continue;
+
+    let subjectRef = "";
+    let subjectTitle = "";
+    if (request.subjectType === "change") {
+      const change = await client.change.findUnique({
+        where: { id: request.subjectId },
+        select: { ref: true, title: true },
+      });
+      if (!change) continue;
+      subjectRef = change.ref;
+      subjectTitle = change.title;
+    }
+
+    out.push({
+      subjectType: request.subjectType,
+      subjectId: request.subjectId,
+      subjectRef,
+      subjectTitle,
+      policyKey: request.policyKey,
+      currentRequiredHat: step.requiredHat,
+      needsOverride: actor.id === request.createdById,
+    });
+  }
+
+  return out;
+}
+
 export type RecordDecisionInput = {
   stepId: string;
   actor: Actor;

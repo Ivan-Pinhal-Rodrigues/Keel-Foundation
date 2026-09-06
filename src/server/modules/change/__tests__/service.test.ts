@@ -4,6 +4,7 @@ import { runWithContext } from "@/server/context";
 import type { PrismaTransaction } from "@/server/db/tx";
 import {
   advanceChange,
+  changeApprovalContext,
   createChange,
   createChangeFromDemand,
   editChange,
@@ -13,7 +14,9 @@ import {
   recordPir,
   rollbackChange,
   scheduleChange,
+  submitForApproval,
 } from "@/server/modules/change/service";
+import { getApprovalState } from "@/server/modules/approval/service";
 import type { Actor, Hat } from "@/server/policy/actor";
 import {
   ConflictError,
@@ -740,6 +743,181 @@ test("recordPir creates the PIR row (once), audits change.pir_recorded; a second
       }),
     ),
   ).rejects.toBeInstanceOf(ConflictError);
+});
+
+// --- Task 8: submitForApproval + changeApprovalContext ------------------------
+
+test("submitForApproval on a LOW-risk assessed change opens a 1-step TECHNICAL_APPROVER request and moves the change to APPROVAL", async () => {
+  const dev = await seedInternal(["DEVELOPER"]);
+  const id = await seedChangeAt(dev.actor, {
+    status: "ASSESSING",
+    riskLevel: "LOW",
+    impactAssessment: "small blast radius",
+    rollbackPlan: "revert the release",
+  });
+
+  await tx((t) => submitForApproval(dev.actor, t, id));
+
+  const row = await db().change.findUniqueOrThrow({ where: { id } });
+  expect(row.status).toBe("APPROVAL");
+
+  const request = await db().approvalRequest.findFirstOrThrow({
+    where: { subjectType: "change", subjectId: id },
+    include: { steps: { orderBy: { order: "asc" } } },
+  });
+  expect(request.status).toBe("PENDING");
+  expect(request.policyKey).toBe("change.standard");
+  expect(request.createdById).toBe(dev.id);
+  expect(request.steps.map((s) => [s.order, s.requiredHat])).toEqual([
+    [1, "TECHNICAL_APPROVER"],
+  ]);
+
+  const actions = (
+    await db().auditEvent.findMany({ where: { subjectId: id } })
+  ).map((a) => a.action);
+  expect(actions).toContain("change.submitted_for_approval");
+  const submitted = await db().auditEvent.findFirstOrThrow({
+    where: { action: "change.submitted_for_approval", subjectId: id },
+  });
+  expect(submitted.payload).toEqual({ policyKey: "change.standard" });
+  const advanced = await db().auditEvent.findFirstOrThrow({
+    where: { action: "change.advanced", subjectId: id },
+  });
+  expect(advanced.payload).toMatchObject({
+    from: "ASSESSING",
+    to: "APPROVAL",
+  });
+
+  const ctxView = await changeApprovalContext(id, db());
+  expect(ctxView.status).toBe("APPROVAL");
+  expect(ctxView.ownerId).toBe(dev.id);
+  expect(ctxView.riskLevel).toBe("LOW");
+  expect(ctxView.currentStepId).toBe(request.steps[0]!.id);
+  expect(ctxView.currentRequiredHat).toBe("TECHNICAL_APPROVER");
+});
+
+test("submitForApproval on a HIGH-risk change opens a 2-step request (TECHNICAL then BUSINESS)", async () => {
+  const dev = await seedInternal(["DEVELOPER"]);
+  const id = await seedChangeAt(dev.actor, {
+    status: "ASSESSING",
+    riskLevel: "HIGH",
+    impactAssessment: "affects all clients",
+    rollbackPlan: "restore the prior release",
+  });
+
+  await tx((t) => submitForApproval(dev.actor, t, id));
+
+  const request = await db().approvalRequest.findFirstOrThrow({
+    where: { subjectType: "change", subjectId: id },
+    include: { steps: { orderBy: { order: "asc" } } },
+  });
+  expect(request.policyKey).toBe("change.high_risk");
+  expect(request.steps.map((s) => [s.order, s.requiredHat])).toEqual([
+    [1, "TECHNICAL_APPROVER"],
+    [2, "BUSINESS_APPROVER"],
+  ]);
+});
+
+test("submitForApproval without a rollback plan → ForbiddenError", async () => {
+  const dev = await seedInternal(["DEVELOPER"]);
+  const id = await seedChangeAt(dev.actor, {
+    status: "ASSESSING",
+    riskLevel: "LOW",
+    impactAssessment: "small",
+  });
+
+  await expect(
+    tx((t) => submitForApproval(dev.actor, t, id)),
+  ).rejects.toBeInstanceOf(ForbiddenError);
+
+  expect(
+    await db().approvalRequest.count({
+      where: { subjectType: "change", subjectId: id },
+    }),
+  ).toBe(0);
+});
+
+test("submitForApproval from a non-ASSESSING change → ForbiddenError", async () => {
+  const dev = await seedInternal(["DEVELOPER"]);
+  const id = await seedChangeAt(dev.actor, {
+    status: "DRAFT",
+    riskLevel: "LOW",
+    impactAssessment: "small",
+    rollbackPlan: "revert",
+  });
+
+  await expect(
+    tx((t) => submitForApproval(dev.actor, t, id)),
+  ).rejects.toBeInstanceOf(ForbiddenError);
+});
+
+test("submitForApproval by a non-owner → ForbiddenError", async () => {
+  const dev = await seedInternal(["DEVELOPER"]);
+  const other = await seedInternal(["DEVELOPER"]);
+  const id = await seedChangeAt(dev.actor, {
+    status: "ASSESSING",
+    riskLevel: "LOW",
+    impactAssessment: "small",
+    rollbackPlan: "revert",
+  });
+
+  await expect(
+    tx((t) => submitForApproval(other.actor, t, id)),
+  ).rejects.toBeInstanceOf(ForbiddenError);
+});
+
+test("re-submitting cancels any stale PENDING request and opens a fresh one", async () => {
+  const dev = await seedInternal(["DEVELOPER"]);
+  const id = await seedChangeAt(dev.actor, {
+    status: "ASSESSING",
+    riskLevel: "LOW",
+    impactAssessment: "small",
+    rollbackPlan: "revert",
+  });
+
+  await tx((t) => submitForApproval(dev.actor, t, id));
+  const first = await db().approvalRequest.findFirstOrThrow({
+    where: { subjectType: "change", subjectId: id },
+  });
+  expect(first.status).toBe("PENDING");
+
+  // Owner edits and re-submits (change forced back to ASSESSING for the test);
+  // the still-PENDING request from the prior round must be cancelled.
+  await db().change.update({ where: { id }, data: { status: "ASSESSING" } });
+  await tx((t) => submitForApproval(dev.actor, t, id));
+
+  const stale = await db().approvalRequest.findUniqueOrThrow({
+    where: { id: first.id },
+  });
+  expect(stale.status).toBe("CANCELLED");
+
+  const all = await db().approvalRequest.findMany({
+    where: { subjectType: "change", subjectId: id },
+  });
+  expect(all).toHaveLength(2);
+
+  const state = await getApprovalState("change", id, db());
+  expect(state.status).toBe("PENDING");
+  expect(state.requestId).not.toBe(first.id);
+});
+
+test("changeApprovalContext offers no step for a REJECTED request", async () => {
+  const dev = await seedInternal(["DEVELOPER"]);
+  const id = await seedChangeAt(dev.actor, {
+    status: "ASSESSING",
+    riskLevel: "LOW",
+    impactAssessment: "small",
+    rollbackPlan: "revert",
+  });
+  await tx((t) => submitForApproval(dev.actor, t, id));
+  await db().approvalRequest.updateMany({
+    where: { subjectType: "change", subjectId: id },
+    data: { status: "REJECTED", resolvedAt: new Date() },
+  });
+
+  const ctxView = await changeApprovalContext(id, db());
+  expect(ctxView.currentStepId).toBeNull();
+  expect(ctxView.currentRequiredHat).toBeNull();
 });
 
 test("advancing to CLOSED with an originating demand notifies the demand's submitter with a 'Delivered' summary", async () => {
