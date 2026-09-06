@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { DataTable, type Column } from "@/components/DataTable";
 import { Pill, type PillTone } from "@/components/Pill";
 import { DemandDrawer, type DemandViewer } from "./DemandDrawer";
+import { ViewToggle } from "./ViewToggle";
 import styles from "./demands.module.css";
 
 /**
@@ -242,18 +243,28 @@ export function DemandRegister({
           </button>
         </div>
 
-        <label className={styles.sort}>
-          <span className={styles.sortLabel}>Sort</span>
-          <select
-            aria-label="Sort"
-            value={sort}
-            onChange={(e) => setSort(e.target.value as SortKey)}
-          >
-            <option value="newest">Newest</option>
-            <option value="oldest">Oldest</option>
-            <option value="cod">Cost of delay</option>
-          </select>
-        </label>
+        <div className={styles.toolbarEnd}>
+          <ViewToggle
+            active="list"
+            params={{
+              status,
+              source: initialFilters.source,
+              mine: initialFilters.mine,
+            }}
+          />
+          <label className={styles.sort}>
+            <span className={styles.sortLabel}>Sort</span>
+            <select
+              aria-label="Sort"
+              value={sort}
+              onChange={(e) => setSort(e.target.value as SortKey)}
+            >
+              <option value="newest">Newest</option>
+              <option value="oldest">Oldest</option>
+              <option value="cod">Cost of delay</option>
+            </select>
+          </label>
+        </div>
       </div>
 
       <DataTable

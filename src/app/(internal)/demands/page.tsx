@@ -3,6 +3,7 @@ import { listDemandsQuery } from "@/lib/api/schemas/demands";
 import { getCurrentActor, whoami } from "@/server/auth/current";
 import { listDemands } from "@/server/modules/demand/service";
 import { DemandRegister, type DemandRow } from "./DemandRegister";
+import { PrioritisationBoard } from "./PrioritisationBoard";
 
 /**
  * `/demands` — the demand register (list view), `plans/plan-01-demand.md` Task 5.
@@ -14,7 +15,8 @@ import { DemandRegister, type DemandRow } from "./DemandRegister";
  * `api/**` and does not import `@prisma/client`), so there is no self-`fetch`.
  * Client components still go through the route handlers.
  *
- * `?view=board` is the prioritisation board (Task 7) — a placeholder for now.
+ * `?view=board` renders the read-only value×effort prioritisation board
+ * (Task 8) instead of the register.
  */
 
 type SearchParams = Record<string, string | string[] | undefined>;
@@ -64,8 +66,17 @@ export default async function DemandsPage({
   const rows = (await listDemands(actor, filters)).map(toRow);
 
   if (filters.view === "board") {
-    // TODO(task-7): render <PrioritisationBoard rows={rows} />
-    return <p>Board view — Task 7</p>;
+    return (
+      <PrioritisationBoard
+        rows={rows}
+        viewer={viewer}
+        filters={{
+          status: filters.status,
+          source: filters.source,
+          mine: filters.mine,
+        }}
+      />
+    );
   }
 
   return (

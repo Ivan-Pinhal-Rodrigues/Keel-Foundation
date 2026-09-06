@@ -4,13 +4,18 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DemandRegister } from "@/app/(internal)/demands/DemandRegister";
 
-// `DemandRegister` calls `useRouter()` (a chip also writes the URL so a reload
-// is stable). The repo carries no app-router test context, so stub the hook.
+// `DemandRegister` calls `useRouter()` (a chip / the view toggle also write the
+// URL so a reload is stable). The repo carries no app-router test context, so
+// stub the hook — one module-level `push` so a test can assert on it.
+const push = vi.fn();
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+  useRouter: () => ({ push, replace: vi.fn() }),
 }));
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  push.mockReset();
+});
 
 const rows = [
   {
@@ -61,4 +66,18 @@ test("the status filter chip narrows the visible rows", async () => {
   await userEvent.click(screen.getByRole("button", { name: /approved/i }));
   expect(screen.queryByText("Faster exports")).toBeNull();
   expect(screen.getByText("Audit log export")).toBeTruthy();
+});
+
+test("the Board toggle routes to ?view=board, preserving the active status filter", async () => {
+  render(
+    <DemandRegister
+      initialRows={rows}
+      initialFilters={{}}
+      viewer={{ id: "u1", kind: "INTERNAL", hats: [] }}
+    />,
+  );
+  await userEvent.click(screen.getByRole("button", { name: /approved/i }));
+  push.mockClear();
+  await userEvent.click(screen.getByRole("button", { name: /^board$/i }));
+  expect(push).toHaveBeenCalledWith("/demands?status=APPROVED&view=board");
 });

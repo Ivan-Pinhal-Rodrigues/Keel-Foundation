@@ -50,6 +50,13 @@
   color: var(--accent-ink);
 }
 
+.toolbarEnd {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
 .sort {
   display: inline-flex;
   align-items: center;
