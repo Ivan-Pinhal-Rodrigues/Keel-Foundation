@@ -54,6 +54,18 @@ test("resolveRequestStatus: any rejection rejects the request; all-approved appr
       s(2, "BUSINESS_APPROVER", "APPROVED"),
     ]),
   ).toBe("APPROVED");
+  expect(
+    resolveRequestStatus([
+      s(1, "TECHNICAL_APPROVER", "APPROVED"),
+      s(2, "BUSINESS_APPROVER", "SKIPPED"),
+    ]),
+  ).toBe("PENDING");
+  expect(
+    resolveRequestStatus([
+      s(1, "TECHNICAL_APPROVER", "SKIPPED"),
+      s(2, "BUSINESS_APPROVER", "SKIPPED"),
+    ]),
+  ).toBe("PENDING");
 });
 
 test("overrideActionFor maps the two approver hats and throws for others", () => {
