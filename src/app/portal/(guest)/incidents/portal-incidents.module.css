@@ -1,0 +1,208 @@
+/*
+ * Guest portal — incident list, detail & report form
+ * (plans/plan-02-incident.md Task 10). Calm and plain-word, matching the
+ * request pages (portal-demands.module.css). Colour comes only from
+ * src/styles/tokens.css custom properties — no raw hex.
+ */
+
+.pageHead {
+  margin: 0 0 1.25rem;
+  font-family: var(--display);
+  font-size: 1.4rem;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+
+.lead {
+  margin: 0 0 1.5rem;
+  color: var(--text-2);
+  line-height: 1.55;
+}
+
+/* ---- list ---- */
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.card {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  text-decoration: none;
+  color: inherit;
+  transition:
+    border-color 0.1s,
+    box-shadow 0.1s;
+}
+
+.card:hover {
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-sm);
+}
+
+.cardRef {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.cardTitle {
+  font-weight: 600;
+  font-size: 0.98rem;
+  color: var(--text);
+}
+
+.cardMeta {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+}
+
+.status {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--accent-ink);
+}
+
+.affected {
+  font-size: 0.85rem;
+  color: var(--text-2);
+}
+
+.sla {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-3);
+}
+
+.empty {
+  margin: 0;
+  padding: 2rem 1rem;
+  text-align: center;
+  color: var(--text-3);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius);
+}
+
+/* ---- detail ---- */
+
+.detail {
+  display: flex;
+  flex-direction: column;
+  gap: 1.75rem;
+}
+
+.detailHead {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.detailTitle {
+  margin: 0;
+  font-family: var(--display);
+  font-size: 1.35rem;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.sectionHead {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-3);
+}
+
+.prose {
+  margin: 0;
+  line-height: 1.6;
+  color: var(--text);
+  white-space: pre-wrap;
+}
+
+.fix {
+  margin: 0;
+  font-weight: 600;
+  color: var(--ok);
+}
+
+/* ---- report form ---- */
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.fieldLabel {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.input,
+.textarea {
+  font: inherit;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.textarea {
+  resize: vertical;
+}
+
+.input:focus-visible,
+.textarea:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.error {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--crit);
+}
+
+.send {
+  padding: 0.55rem 1rem;
+  font: inherit;
+  font-weight: 600;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--accent-wash);
+  color: var(--accent-ink);
+  cursor: pointer;
+}
+
+.send:disabled {
+  opacity: 0.55;
+  cursor: default;
+}

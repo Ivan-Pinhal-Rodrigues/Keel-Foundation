@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getCurrentActor } from "@/server/auth/current";
 import { LogoutButton } from "@/components/LogoutButton";
@@ -14,9 +15,9 @@ import styles from "./portal.module.css";
  * 07 §4.1) and lives at `src/app/portal/invite/`, outside `(guest)/` — is not
  * caught by this guard.
  *
- * Deliberately minimal chrome: product mark + sign out. plan-04 replaces this
- * with the real portal layout (client org name, notification bell, account
- * menu, the three-item nav).
+ * Deliberately minimal chrome: product mark, a three-link nav, and sign out.
+ * plan-04 replaces this with the real portal layout (client org name,
+ * notification bell, account menu).
  */
 export default async function GuestPortalLayout({
   children,
@@ -39,6 +40,11 @@ export default async function GuestPortalLayout({
           </span>
           <b>Keel</b>
         </span>
+        <nav className={styles.nav} aria-label="Portal">
+          <Link href="/portal/demands">Requests</Link>
+          <Link href="/portal/incidents">Incidents</Link>
+          <Link href="/portal/incidents/new">Report a problem</Link>
+        </nav>
         <LogoutButton />
       </header>
       <main className={styles.main}>{children}</main>

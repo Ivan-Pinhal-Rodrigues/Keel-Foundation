@@ -43,7 +43,7 @@ export function PortalDemandDetail({
 
       <section className={styles.section} aria-label="Messages">
         <h2 className={styles.sectionHead}>Messages</h2>
-        <CommentThread demandId={String(demand.id)} />
+        <CommentThread subjectPath={`/api/demands/${String(demand.id)}`} />
       </section>
     </article>
   );

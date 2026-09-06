@@ -5,10 +5,13 @@ import { apiFetch } from "@/lib/api/client";
 import styles from "./portal-demands.module.css";
 
 /**
- * The guest's message thread on one request (`plans/plan-01-demand.md` Task 9).
+ * The guest's message thread on one item (`plans/plan-01-demand.md` Task 9,
+ * `plans/plan-02-incident.md` Task 10).
  *
- * GETs `/api/demands/:id/comments` on mount and POSTs `{ body }` — through
- * `apiFetch`, never a bare `fetch` (Global Constraint). A guest sees only
+ * `subjectPath` is the item's API base — `/api/demands/:id` or
+ * `/api/incidents/:id`. The thread GETs `${subjectPath}/comments` on mount and
+ * POSTs `{ body }` there — through `apiFetch`, never a bare `fetch` (Global
+ * Constraint). A guest sees only
  * `visibleToClient` comments (the comment module filters them) and every
  * comment a guest writes is client-visible, so there is NO "visible to client"
  * toggle here and the POST body carries nothing but `body`. On a successful
@@ -28,7 +31,7 @@ function whenText(iso: string): string {
   return Number.isNaN(date.getTime()) ? "" : date.toISOString().slice(0, 10);
 }
 
-export function CommentThread({ demandId }: { demandId: string }) {
+export function CommentThread({ subjectPath }: { subjectPath: string }) {
   const [comments, setComments] = useState<GuestComment[]>([]);
   const [draft, setDraft] = useState("");
   const [loading, setLoading] = useState(true);
@@ -38,7 +41,7 @@ export function CommentThread({ demandId }: { demandId: string }) {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    apiFetch<{ comments: GuestComment[] }>(`/api/demands/${demandId}/comments`)
+    apiFetch<{ comments: GuestComment[] }>(`${subjectPath}/comments`)
       .then((res) => {
         if (!cancelled) setComments(res.comments);
       })
@@ -53,7 +56,7 @@ export function CommentThread({ demandId }: { demandId: string }) {
     return () => {
       cancelled = true;
     };
-  }, [demandId]);
+  }, [subjectPath]);
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
@@ -63,7 +66,7 @@ export function CommentThread({ demandId }: { demandId: string }) {
     setError(null);
     try {
       const res = await apiFetch<{ comments: GuestComment[] }>(
-        `/api/demands/${demandId}/comments`,
+        `${subjectPath}/comments`,
         { method: "POST", body: { body } },
       );
       setComments(res.comments);

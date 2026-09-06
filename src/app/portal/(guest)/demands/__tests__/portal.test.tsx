@@ -98,7 +98,7 @@ test("a guest comment posts with no visible-to-client toggle and a body-only pay
     return Promise.resolve({ comments: [] });
   });
 
-  render(<CommentThread demandId="d1" />);
+  render(<CommentThread subjectPath="/api/demands/d1" />);
 
   // No "visible to client" control anywhere in a guest's comment box.
   expect(screen.queryByRole("checkbox")).toBeNull();
