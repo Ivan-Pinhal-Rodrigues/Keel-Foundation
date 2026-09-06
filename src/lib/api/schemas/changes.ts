@@ -42,6 +42,16 @@ export const editChangeBody = z
   });
 export type EditChangeBody = z.infer<typeof editChangeBody>;
 
+/**
+ * `POST /api/changes/:id/comments` — the internal `change.review` thread. Every
+ * change comment is internal (a change is never a guest surface), so there is no
+ * `visibleToClient` field.
+ */
+export const changeCommentBody = z.object({
+  body: z.string().trim().min(1).max(5000),
+});
+export type ChangeCommentBody = z.infer<typeof changeCommentBody>;
+
 /** `POST /api/changes/:id/link-incident` — link an incident to the change. */
 export const linkIncidentBody = z.object({
   incidentId: z.string().trim().min(1),
