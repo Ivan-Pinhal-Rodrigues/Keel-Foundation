@@ -51,7 +51,49 @@ async function seedUserWithNotes(kind: "INTERNAL" | "GUEST" = "INTERNAL") {
 }
 
 test("listNotifications is scoped to the actor and newest-first; unread filter works", async () => {
-  const me = await seedUserWithNotes();
+  const me = await db().user.create({
+    data: {
+      email: `n-${Math.random().toString(16).slice(2)}@k`,
+      passwordHash: "x",
+      displayName: "N",
+      kind: "INTERNAL",
+      hats: ["DEVELOPER"],
+      clientId: null,
+    },
+  });
+  // Create notifications with explicit distinct createdAt values to test primary sort key
+  await db().notification.create({
+    data: {
+      userId: me.id,
+      kind: "ASSIGNED",
+      subjectType: "Incident",
+      subjectId: "i1",
+      payload: { summary: "You were assigned INC-1" },
+      createdAt: new Date("2026-01-01T00:00:00Z"),
+    },
+  });
+  await db().notification.create({
+    data: {
+      userId: me.id,
+      kind: "COMMENTED",
+      subjectType: "Demand",
+      subjectId: "d1",
+      payload: { summary: "New comment on DEM-1" },
+      readAt: new Date(),
+      createdAt: new Date("2026-01-01T01:00:00Z"),
+    },
+  });
+  await db().notification.create({
+    data: {
+      userId: me.id,
+      kind: "APPROVAL_NEEDED",
+      subjectType: "ApprovalRequest",
+      subjectId: "r1",
+      payload: { summary: "Approval needed on CHG-1" },
+      createdAt: new Date("2026-01-01T02:00:00Z"),
+    },
+  });
+
   const other = await seedUserWithNotes();
   const actor: Actor = {
     id: me.id,
@@ -81,15 +123,24 @@ test("listNotifications is scoped to the actor and newest-first; unread filter w
   ).toBe(true);
 });
 
-test("unreadCount counts only the actor's unread rows", async () => {
+test("unreadCount counts only the actor's unread rows, with cross-user isolation", async () => {
   const me = await seedUserWithNotes();
+  const other = await seedUserWithNotes();
   const actor: Actor = {
     id: me.id,
     kind: "INTERNAL",
     hats: [],
     clientId: null,
   };
+  const otherActor: Actor = {
+    id: other.id,
+    kind: "INTERNAL",
+    hats: [],
+    clientId: null,
+  };
+  // User A should have 2 unread, user B should have 2 unread
   expect(await unreadCount(actor, db())).toBe(2);
+  expect(await unreadCount(otherActor, db())).toBe(2);
 });
 
 test("markRead({ ids }) marks only the actor's matching unread rows; markRead({ all }) clears the rest", async () => {
@@ -129,6 +180,8 @@ test("hrefFor: internal vs guest deep links, case-insensitive subjectType", () =
   expect(hrefFor("incident", "i1", "INTERNAL")).toBe("/incidents?open=i1");
   expect(hrefFor("Change", "c1", "INTERNAL")).toBe("/changes?open=c1");
   expect(hrefFor("ApprovalRequest", "r1", "INTERNAL")).toBe("/approvals");
+  expect(hrefFor("Demand", "d1", "INTERNAL")).toBe("/demands?open=d1");
+  expect(hrefFor("Comment", "x", "INTERNAL")).toBe("/overview");
   expect(hrefFor("Demand", "d1", "GUEST")).toBe("/portal/demands/d1");
   expect(hrefFor("Incident", "i1", "GUEST")).toBe("/portal/incidents/i1");
   expect(hrefFor("Change", "c1", "GUEST")).toBe("/portal"); // a guest never sees a change
