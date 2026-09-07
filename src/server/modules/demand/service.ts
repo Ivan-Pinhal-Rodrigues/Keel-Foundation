@@ -29,6 +29,9 @@ const WORTH_DECIDERS = ["BUSINESS_APPROVER", "TECHNICAL_APPROVER"] as const;
 const DEMAND_INCLUDE = {
   worth: true,
   client: { select: { name: true } },
+  // plan-03: a guest's status phrase for a CONVERTED demand follows the linked
+  // change ("Delivered" once it closes) — in the LIST path as well as the detail.
+  convertedToChange: { select: { status: true } },
 } as const;
 
 export type CreateDemandInput = {
@@ -116,12 +119,7 @@ export async function getDemandForActor(
 ): Promise<Record<string, unknown>> {
   const row = await client.demand.findUnique({
     where: { id },
-    include: {
-      ...DEMAND_INCLUDE,
-      // plan-03: the guest status phrase for a CONVERTED demand follows the
-      // linked change ("Delivered" once it closes).
-      convertedToChange: { select: { status: true } },
-    },
+    include: DEMAND_INCLUDE,
   });
   if (!row) throw new NotFoundError("not found");
   assertVisibleToGuest(actor, row);

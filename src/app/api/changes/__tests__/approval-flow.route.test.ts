@@ -211,6 +211,44 @@ test("a rejection at the technical step: request REJECTED, change back to ASSESS
   });
 });
 
+test("a retrospective REJECTED decision on an EMERGENCY change already at PIR: the change stays PIR, implementedAt is kept, and no change.advanced { from: APPROVAL } is written", async () => {
+  const id = await seedChange(owner.userId, { riskLevel: "LOW" });
+  await SUBMIT(submitReq(owner), P(id, ""));
+
+  // The EMERGENCY change ran ahead of its still-PENDING approval: it is now at
+  // PIR with implementedAt set. A retrospective decision then comes in REJECTED.
+  const implementedAt = new Date();
+  await db.change.update({
+    where: { id },
+    data: { status: "PIR", changeType: "EMERGENCY", implementedAt },
+  });
+
+  const r = await APPROVE(
+    approveReq(
+      { decision: "REJECTED", reason: "should not have shipped" },
+      tech,
+    ),
+    P(id, "technical"),
+  );
+  expect(r.status).toBe(200);
+
+  const req = await db.approvalRequest.findFirstOrThrow({
+    where: { subjectType: "change", subjectId: id },
+  });
+  expect(req.status).toBe("REJECTED");
+
+  const ch = await db.change.findUniqueOrThrow({ where: { id } });
+  expect(ch.status).toBe("PIR");
+  expect(ch.implementedAt).not.toBeNull();
+
+  const advanced = await db.auditEvent.findMany({
+    where: { action: "change.advanced", subjectId: id },
+  });
+  expect(
+    advanced.some((a) => (a.payload as { from?: string }).from === "APPROVAL"),
+  ).toBe(false);
+});
+
 test("the change OWNER hitting POST /approve/technical with no justification → 409 { error: 'segregation', overrideAction: 'change.approve.technical.override' }", async () => {
   const id = await seedChange(ownerTech.userId, { riskLevel: "LOW" });
   await SUBMIT(submitReq(ownerTech), P(id, ""));

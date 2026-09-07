@@ -598,6 +598,54 @@ test("recordDecision with a blank reason → ConflictError (spec 04 §9: every d
   ).rejects.toBeInstanceOf(ConflictError);
 });
 
+test("two concurrent recordDecision calls on the same step: exactly one decision is recorded, the other → ConflictError", async () => {
+  const owner = await seedActor(["DEVELOPER"]);
+  const tech1 = await seedActor(["TECHNICAL_APPROVER"]);
+  const tech2 = await seedActor(["TECHNICAL_APPROVER"]);
+  const subjectId = rand();
+
+  await open(standardInput(owner.id, subjectId));
+  const stepId = await currentStepId(subjectId);
+
+  // Each `decide` runs in its own `$transaction`. Under READ COMMITTED the
+  // loser blocks on the step's row lock, re-checks the `status: "PENDING"`
+  // guard against the committed row, and throws.
+  const results = await Promise.allSettled([
+    decide({ stepId, actor: tech1, decision: "APPROVED", reason: "one" }),
+    decide({ stepId, actor: tech2, decision: "REJECTED", reason: "two" }),
+  ]);
+
+  const fulfilled = results.filter((r) => r.status === "fulfilled");
+  const rejected = results.filter(
+    (r): r is PromiseRejectedResult => r.status === "rejected",
+  );
+  expect(fulfilled).toHaveLength(1);
+  expect(rejected).toHaveLength(1);
+  expect(rejected[0]!.reason).toBeInstanceOf(ConflictError);
+
+  expect(await db().approvalDecision.count({ where: { stepId } })).toBe(1);
+  const request = await db().approvalRequest.findFirstOrThrow({
+    where: { subjectType: "change", subjectId },
+  });
+  expect(["APPROVED", "REJECTED"]).toContain(request.status);
+});
+
+test("a second sequential recordDecision on a resolved step → ConflictError, one decision row", async () => {
+  const owner = await seedActor(["DEVELOPER"]);
+  const tech = await seedActor(["TECHNICAL_APPROVER"]);
+  const subjectId = rand();
+
+  await open(standardInput(owner.id, subjectId));
+  const stepId = await currentStepId(subjectId);
+
+  await decide({ stepId, actor: tech, decision: "APPROVED", reason: "first" });
+  await expect(
+    decide({ stepId, actor: tech, decision: "REJECTED", reason: "second" }),
+  ).rejects.toBeInstanceOf(ConflictError);
+
+  expect(await db().approvalDecision.count({ where: { stepId } })).toBe(1);
+});
+
 test("recordDecision writes ApprovalDecision with .create only (row is immutable for keel_app)", async () => {
   const owner = await seedActor(["DEVELOPER"]);
   const tech = await seedActor(["TECHNICAL_APPROVER"]);

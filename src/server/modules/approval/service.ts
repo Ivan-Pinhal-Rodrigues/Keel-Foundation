@@ -360,6 +360,38 @@ export async function recordDecision(
     ? input.overrideJustification!.trim()
     : null;
 
+  const now = new Date();
+  const nextStepStatus: $Enums.StepStatus =
+    input.decision === "APPROVED" ? "APPROVED" : "REJECTED";
+
+  // Resolve the step — and, if this decision finishes it, the request — with
+  // CONDITIONAL writes, BEFORE the immutable `ApprovalDecision` row. Under READ
+  // COMMITTED a second concurrent decision on the same step blocks on this row's
+  // lock, then re-checks its `status: "PENDING"` WHERE against the committed row,
+  // matches nothing, and this `count === 0` branch throws — so exactly one
+  // decision is ever recorded per step. (The `findUnique` guards above are the
+  // fast path; this is the race backstop.)
+  const stepUpdate = await tx.approvalStep.updateMany({
+    where: { id: step.id, status: "PENDING" },
+    data: { status: nextStepStatus, resolvedAt: now },
+  });
+  if (stepUpdate.count === 0) {
+    throw new ConflictError("this step is not awaiting a decision");
+  }
+
+  // Recompute the request status from the now-committed sibling statuses.
+  const siblings = await tx.approvalStep.findMany({
+    where: { requestId: request.id },
+    orderBy: { order: "asc" },
+  });
+  const requestStatus = resolveRequestStatus(siblings);
+  if (requestStatus !== "PENDING") {
+    await tx.approvalRequest.updateMany({
+      where: { id: request.id, status: "PENDING" },
+      data: { status: requestStatus, resolvedAt: now },
+    });
+  }
+
   await tx.approvalDecision.create({
     data: {
       stepId: step.id,
@@ -370,26 +402,6 @@ export async function recordDecision(
       overrideJustification: justification,
     },
   });
-
-  const now = new Date();
-  const nextStepStatus: $Enums.StepStatus =
-    input.decision === "APPROVED" ? "APPROVED" : "REJECTED";
-  await tx.approvalStep.update({
-    where: { id: step.id },
-    data: { status: nextStepStatus, resolvedAt: now },
-  });
-
-  // Patch this step's new status into the in-memory sibling list to recompute.
-  const nextSteps = request.steps.map((s) =>
-    s.id === step.id ? { ...s, status: nextStepStatus } : s,
-  );
-  const requestStatus = resolveRequestStatus(nextSteps);
-  if (requestStatus !== "PENDING") {
-    await tx.approvalRequest.update({
-      where: { id: request.id },
-      data: { status: requestStatus, resolvedAt: now },
-    });
-  }
 
   // Audit — all on the consumer's `requestId`, subject "ApprovalRequest".
   await writeAudit(tx, {
@@ -430,7 +442,7 @@ export async function recordDecision(
   // matching `openApprovalRequest`, so a subject-keyed feed and the notification
   // deep-links stay consistent. (The `approval.*` audit events above stay on
   // `subjectType: "ApprovalRequest"` — spec 04 §6 event chain.)
-  const nextStep = currentStep(nextSteps);
+  const nextStep = currentStep(siblings);
   if (input.decision === "APPROVED" && nextStep) {
     await emitNotification(tx, {
       recipients: { hat: nextStep.requiredHat },

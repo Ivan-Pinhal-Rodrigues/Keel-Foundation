@@ -325,6 +325,33 @@ test("editChange by a non-owner non-DEVELOPER → ForbiddenError", async () => {
   ).rejects.toBeInstanceOf(ForbiddenError);
 });
 
+test("editChange rejects a riskLevel change once the change is in APPROVAL", async () => {
+  const dev = await seedInternal(["DEVELOPER"]);
+  const { id } = await ctx(() =>
+    db().$transaction((tx) =>
+      createChange(dev.actor, tx, { title: "c", rfc: "r" }),
+    ),
+  );
+  await db().change.update({ where: { id }, data: { status: "APPROVAL" } });
+
+  await expect(
+    ctx(() =>
+      db().$transaction((tx) =>
+        editChange(dev.actor, tx, id, { riskLevel: "LOW" }),
+      ),
+    ),
+  ).rejects.toBeInstanceOf(ForbiddenError);
+
+  // Other fields stay editable at APPROVAL.
+  await ctx(() =>
+    db().$transaction((tx) =>
+      editChange(dev.actor, tx, id, { impactAssessment: "still editable" }),
+    ),
+  );
+  const row = await db().change.findUniqueOrThrow({ where: { id } });
+  expect(row.impactAssessment).toBe("still editable");
+});
+
 test("editChange is rejected once the change is IMPLEMENTING+", async () => {
   const dev = await seedInternal(["DEVELOPER"]);
   const { id } = await ctx(() =>
@@ -478,25 +505,26 @@ test("advanceChange DRAFT→ASSESSING requires RFC + a demand link or standalone
   expect(audit.payload).toMatchObject({ from: "DRAFT", to: "ASSESSING" });
 });
 
-test("advanceChange ASSESSING→APPROVAL is blocked without a rollback plan", async () => {
+test("advanceChange from ASSESSING is refused — an assessed change enters approval only via submit-for-approval", async () => {
   const dev = await seedInternal(["DEVELOPER"]);
   const id = await seedChangeAt(dev.actor, {
     status: "ASSESSING",
     riskLevel: "LOW",
     impactAssessment: "minimal",
+    rollbackPlan: "revert the release",
   });
 
   await expect(
     tx((t) => advanceChange(dev.actor, t, id, { from: "ASSESSING" })),
   ).rejects.toBeInstanceOf(ForbiddenError);
 
-  await db().change.update({
-    where: { id },
-    data: { rollbackPlan: "revert the release" },
-  });
-  await tx((t) => advanceChange(dev.actor, t, id, { from: "ASSESSING" }));
   const row = await db().change.findUniqueOrThrow({ where: { id } });
-  expect(row.status).toBe("APPROVAL");
+  expect(row.status).toBe("ASSESSING");
+  expect(
+    await db().auditEvent.count({
+      where: { action: "change.advanced", subjectId: id },
+    }),
+  ).toBe(0);
 });
 
 test("advanceChange APPROVAL→SCHEDULED blocked while the approval request is PENDING; allowed once APPROVED", async () => {

@@ -317,6 +317,69 @@ test("a standalone DRAFT: Advance is disabled until the standalone gate is check
   });
 });
 
+test("at the Assess stage the owner's Advance submits for approval (POST /submit-for-approval, not /advance)", async () => {
+  const change = makeChange({
+    stepper: {
+      stages: stepperStages(),
+      currentStageKey: "assessing",
+      canAdvance: true,
+    },
+  });
+  wire({ change });
+  render(
+    <ChangeDrawer
+      id="c1"
+      open
+      onClose={vi.fn()}
+      viewer={viewer(["DEVELOPER"], OWNER)}
+    />,
+  );
+
+  await screen.findByText("CHG-0001");
+  const advance = await screen.findByRole("button", { name: /advance/i });
+  await waitFor(() =>
+    expect((advance as HTMLButtonElement).disabled).toBe(false),
+  );
+  await userEvent.click(advance);
+
+  await waitFor(() => {
+    const call = apiFetchMock.mock.calls.find(
+      ([p, o]) =>
+        p === "/api/changes/c1/submit-for-approval" && o?.method === "POST",
+    );
+    expect(call).toBeTruthy();
+  });
+  expect(
+    apiFetchMock.mock.calls.some(([p]) => p === "/api/changes/c1/advance"),
+  ).toBe(false);
+});
+
+test("at the Assess stage a non-owner sees Advance disabled with the owner-only hint", async () => {
+  const change = makeChange({
+    stepper: {
+      stages: stepperStages(),
+      currentStageKey: "assessing",
+      canAdvance: true,
+    },
+  });
+  wire({ change });
+  render(
+    <ChangeDrawer
+      id="c1"
+      open
+      onClose={vi.fn()}
+      viewer={viewer(["DEVELOPER"], "not-the-owner")}
+    />,
+  );
+
+  await screen.findByText("CHG-0001");
+  const advance = await screen.findByRole("button", { name: /advance/i });
+  expect((advance as HTMLButtonElement).disabled).toBe(true);
+  expect(
+    screen.getByText(/only the change owner can submit for approval/i),
+  ).toBeTruthy();
+});
+
 test("an IMPLEMENTING change: Advance is disabled until the 'went to plan' gate is checked, then POSTs /advance with the acknowledgement", async () => {
   const change = makeChange({
     status: "IMPLEMENTING",

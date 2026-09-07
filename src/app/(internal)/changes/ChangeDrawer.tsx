@@ -31,10 +31,12 @@ import styles from "./ChangeDrawer.module.css";
  * DEVELOPER-gated server-side and simply surface their errors here. The review
  * thread and its composer are shown only to a REVIEWER-hat viewer.
  *
- * `stepper.canAdvance` is server-computed and passed to `LifecycleStepper`
- * verbatim — the drawer never recomputes it. The two free-checkbox gates
- * (`standaloneConfirmed`, `wentToPlanAcknowledged`) are local state, folded into
- * the `/advance` call's `acknowledgements` body.
+ * `stepper.canAdvance` is server-computed. The drawer keeps the server's value
+ * for the substantive gates (approval status, window validity, PIR fields) and
+ * only derives an effective value for the two free-checkbox gates
+ * (`standaloneConfirmed`, `wentToPlanAcknowledged`), which are local state folded
+ * into the `/advance` call's `acknowledgements` body. At the Assess stage Advance
+ * POSTs `/submit-for-approval` (owner only) rather than `/advance`.
  */
 
 export type ChangeViewer = {
@@ -325,11 +327,30 @@ export function ChangeDrawer({
     currentStage != null &&
     ["draft", "implementing"].includes(currentStage.key) &&
     currentStage.gate.every((g) => g.done);
+
+  // The Assess stage's Advance submits the change for approval — a
+  // `change.submit_for_approval` write the policy rule restricts to the owner.
+  // A non-owner clicking it would 403, so disable it with a hint instead.
+  const atAssessStage = change?.stepper?.currentStageKey === "assessing";
+  const isOwner = change != null && viewer.id === change.ownerId;
+  const assessBlockedForNonOwner = atAssessStage && !isOwner;
+
   const effectiveCanAdvance =
-    (change?.stepper?.canAdvance ?? false) || localGatesSatisfied;
+    ((change?.stepper?.canAdvance ?? false) || localGatesSatisfied) &&
+    !assessBlockedForNonOwner;
+  const stepperBlockedReason = assessBlockedForNonOwner
+    ? "only the change owner can submit for approval"
+    : change?.stepper?.blockedReason;
 
   function advance() {
     if (!change) return;
+    // At the Assess stage, Advance opens the approval request (and moves the
+    // change ASSESSING → APPROVAL) — a distinct endpoint from the plain
+    // forward advance every other stage uses.
+    if (change.stepper?.currentStageKey === "assessing") {
+      void runWrite("POST", `/api/changes/${id}/submit-for-approval`);
+      return;
+    }
     const acknowledgements: Record<string, boolean> = {};
     if (standaloneConfirmed) acknowledgements.standaloneConfirmed = true;
     if (wentToPlanAcknowledged) acknowledgements.wentToPlanAcknowledged = true;
@@ -597,7 +618,7 @@ export function ChangeDrawer({
                 stages={stepperStages}
                 currentStageKey={change.stepper.currentStageKey}
                 canAdvance={effectiveCanAdvance}
-                blockedReason={change.stepper.blockedReason}
+                blockedReason={stepperBlockedReason}
                 onToggleGate={toggleGate}
                 onAdvance={advance}
                 readOnly={stepperReadOnly}

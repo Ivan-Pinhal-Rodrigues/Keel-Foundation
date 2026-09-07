@@ -176,7 +176,10 @@ export type EditChangeInput = {
 /**
  * Edit the RFC / risk / impact / rollback fields of a change. Only the provided
  * keys are written. Rejected once the change is `IMPLEMENTING` or later — the
- * record is frozen for implementation. Beyond the always-written `change.edited`
+ * record is frozen for implementation. `riskLevel` is additionally locked once
+ * the change is in or past approval (`APPROVAL` / `SCHEDULED`): its value drives
+ * the approval policy tier, so it cannot move under a live or granted request —
+ * withdraw the approval request first. Beyond the always-written `change.edited`
  * event, setting `riskLevel` also writes `change.risk_assessed` and setting a
  * non-empty `rollbackPlan` also writes `change.rollback_plan_set`.
  */
@@ -199,6 +202,14 @@ export async function editChange(
 
   if (EDIT_LOCKED_STATUSES.includes(row.status)) {
     throw new ForbiddenError("the change is locked for editing");
+  }
+  if (
+    input.riskLevel !== undefined &&
+    (row.status === "APPROVAL" || row.status === "SCHEDULED")
+  ) {
+    throw new ForbiddenError(
+      "the risk level cannot change once the change is in approval — withdraw the approval request first",
+    );
   }
 
   const data: Prisma.ChangeUpdateInput = {};
@@ -384,12 +395,14 @@ export async function getChangeForActor(
 
 /** The one forward status out of each non-terminal stage (spec 03 §3). The
  *  backward `APPROVAL → ASSESSING` (rejection) and `IMPLEMENTING → ROLLED_BACK`
- *  edges are driven elsewhere. */
+ *  edges are driven elsewhere. `ASSESSING` has NO forward entry: an assessed
+ *  change moves into `APPROVAL` only through `submitForApproval`, which opens the
+ *  `ApprovalRequest` at the same time. A plain forward advance out of `ASSESSING`
+ *  is refused (see `advanceChange`). */
 const CHANGE_FORWARD: Partial<
   Record<$Enums.ChangeStatus, $Enums.ChangeStatus>
 > = {
   DRAFT: "ASSESSING",
-  ASSESSING: "APPROVAL",
   APPROVAL: "SCHEDULED",
   SCHEDULED: "IMPLEMENTING",
   IMPLEMENTING: "PIR",
@@ -454,6 +467,15 @@ export async function advanceChange(
   const approval = await getApprovalState("change", id, tx);
   const stage = CHANGE_STAGES.find((s) => s.status === row.status);
   if (!stage) throw new ForbiddenError("the change is in a terminal state");
+
+  // An assessed change enters APPROVAL only via `submitForApproval` (which opens
+  // the ApprovalRequest atomically). A plain forward advance here would strand
+  // the change at APPROVAL with no request and every exit refused.
+  if (row.status === "ASSESSING") {
+    throw new ForbiddenError(
+      "use submit-for-approval to move an assessed change into approval",
+    );
+  }
 
   const gate = gateFor(
     stage.key,
@@ -535,6 +557,7 @@ export async function advanceChange(
           subjectType: "demand",
           subjectId: row.originatingDemandId,
           summary: "Your request has been delivered",
+          excludeActorId: actor.id,
         });
       }
     }
@@ -549,6 +572,7 @@ export async function advanceChange(
         subjectType: "incident",
         subjectId: link.incident.id,
         summary: "An issue affecting you has been fixed",
+        excludeActorId: actor.id,
       });
     }
   }
@@ -602,11 +626,12 @@ export async function scheduleChange(
         subjectId: id,
         payload: { from: "APPROVAL", to: "SCHEDULED" },
       });
-      // Spec 03 §7 "scheduled → the other internal user". A NORMAL approved
-      // change enters SCHEDULED through this folded transition (plan ruling
-      // P4), never through `advanceChange` — so the "scheduled" notification
-      // has to fire here too. The two paths are mutually exclusive: a change
-      // enters SCHEDULED exactly once, so exactly one notification is emitted.
+      // Spec 03 §7 "scheduled → the other internal user". A change can reach
+      // SCHEDULED by two paths: this folded `APPROVAL → SCHEDULED` (a NORMAL
+      // approved change, plan ruling P4) or `advanceChange`'s `to === "SCHEDULED"`
+      // branch (an EMERGENCY change advancing directly). Both emit this
+      // notification. It stays exactly-once because a change enters SCHEDULED
+      // exactly once — nothing returns to it — regardless of the path taken.
       await emitNotification(tx, {
         recipients: { audience: "ALL_INTERNAL" },
         kind: "STATUS_CHANGED",

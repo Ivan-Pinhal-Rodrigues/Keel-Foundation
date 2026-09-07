@@ -312,6 +312,15 @@ test("an approved demand is converted, assessed HIGH-risk, two-step approved, sc
       where: { action: "change.implementing", subjectId: changeId },
     }),
   ).toHaveLength(1);
+  const advancedToImplementing = (
+    await db().auditEvent.findMany({
+      where: { action: "change.advanced", subjectId: changeId },
+    })
+  ).find((a) => (a.payload as { to?: string }).to === "IMPLEMENTING");
+  expect(advancedToImplementing?.payload).toMatchObject({
+    from: "SCHEDULED",
+    to: "IMPLEMENTING",
+  });
 
   // --- 10. IMPLEMENTING → PIR (went-to-plan acknowledgement) ----------
   await tx((t) =>
@@ -350,6 +359,15 @@ test("an approved demand is converted, assessed HIGH-risk, two-step approved, sc
       where: { action: "change.closed", subjectId: changeId },
     }),
   ).toHaveLength(1);
+  const advancedToClosed = (
+    await db().auditEvent.findMany({
+      where: { action: "change.advanced", subjectId: changeId },
+    })
+  ).find((a) => (a.payload as { to?: string }).to === "CLOSED");
+  expect(advancedToClosed?.payload).toMatchObject({
+    from: "PIR",
+    to: "CLOSED",
+  });
   const deliveredNote = await db().notification.findFirstOrThrow({
     where: {
       userId: guest.id,

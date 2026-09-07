@@ -29,9 +29,13 @@ import { requireInternal } from "@/server/policy/subjects/helpers";
  * malformed body is a 400, mirroring `decideDemand`'s route.)
  *
  * On REJECTED the change moves back `APPROVAL → ASSESSING` HERE, in the route's
- * transaction — `recordDecision` stays subject-agnostic (plan ruling P2). On
- * APPROVED the change stays at APPROVAL; the Schedule panel + `scheduleChange`
- * perform the next transition (Task 7).
+ * transaction — `recordDecision` stays subject-agnostic (plan ruling P2) — but
+ * ONLY when the change is actually still at `APPROVAL`. A retrospective REJECTED
+ * decision on an EMERGENCY change that has already advanced past approval is
+ * recorded by `recordDecision` and the change is left where it is (the `pir`
+ * gate's "retrospective decision resolved" check covers that case). On APPROVED
+ * the change stays at APPROVAL; the Schedule panel + `scheduleChange` perform the
+ * next transition (Task 7).
  */
 export async function POST(
   req: Request,
@@ -80,7 +84,7 @@ export async function POST(
         reason: body.reason,
         overrideJustification: body.overrideJustification,
       });
-      if (requestStatus === "REJECTED") {
+      if (requestStatus === "REJECTED" && ctx.status === "APPROVAL") {
         assertTransition("APPROVAL", "ASSESSING");
         await tx.change.update({
           where: { id },

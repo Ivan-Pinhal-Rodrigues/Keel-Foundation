@@ -452,7 +452,7 @@ model ChangeIncidentLink {
 // Approvals engine — generic, reusable (spec 04, specs/data-model.md
 // §"Approvals engine (generic, reusable)")
 //
-// An ApprovalRequest targets any subject by (subjectType, subjectId) — "Change"
+// An ApprovalRequest targets any subject by (subjectType, subjectId) — "change"
 // in v1. Steps are ordered (1-based) and role-routed; each step records one or
 // more decisions with actor / time / reason. The single-approver override is a
 // decision flag plus a typed justification (DESIGN §3.4).
@@ -473,9 +473,9 @@ model ChangeIncidentLink {
 
 model ApprovalRequest {
   id          String         @id @default(cuid())
-  subjectType String // "Change" in v1
+  subjectType String // "change" in v1 (lowercase — matches every service call site)
   subjectId   String
-  policyKey   String // e.g. change.normal, change.highRisk
+  policyKey   String // e.g. change.standard, change.high_risk
   status      ApprovalStatus @default(PENDING)
   createdById String // → User (the submitter); bare String, drives the SoD check
   resolvedAt  DateTime?      @db.Timestamptz(3) // set when status leaves PENDING (DESIGN §4.2)

@@ -704,6 +704,26 @@ test("a guest cannot convert (ForbiddenError)", async () => {
   ).rejects.toBeInstanceOf(ForbiddenError);
 });
 
+test("a guest's listDemands follows the linked change: 'Delivered' for a CONVERTED demand whose change is CLOSED", async () => {
+  const { id, guestActor } = await seedAssessedDemand({
+    status: "APPROVED",
+    decision: "PURSUE",
+  });
+  const biz = (await seedInternal(["BUSINESS_APPROVER"])).actor;
+
+  const { changeId } = await ctx(() =>
+    db().$transaction((tx) => convertDemand(biz, tx, id)),
+  );
+  await db().change.update({
+    where: { id: changeId },
+    data: { status: "CLOSED" },
+  });
+
+  const list = await listDemands(guestActor, {}, db());
+  const mine = list.find((d) => d.id === id);
+  expect(mine?.status).toBe("Delivered");
+});
+
 test("getDemandForActor for a guest whose demand is CONVERTED and whose change is CLOSED shows status 'Delivered'", async () => {
   const { id, guestActor } = await seedAssessedDemand({
     status: "APPROVED",
