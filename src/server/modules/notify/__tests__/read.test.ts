@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 import { withTestDb } from "@/test/db";
 import {
   hrefFor,
+  listFailedEmails,
   listNotifications,
   markRead,
   unreadCount,
@@ -173,6 +174,78 @@ test("markRead({ ids }) marks only the actor's matching unread rows; markRead({ 
   expect(r2.updated).toBe(1);
   expect(await unreadCount(actor, db())).toBe(0);
   expect(await unreadCount(otherActor, db())).toBe(2); // untouched
+});
+
+test("listFailedEmails: FAILED rows in the last 7 days, newest first, capped at 10", async () => {
+  await db().emailOutbox.deleteMany();
+
+  // 12 FAILED rows inside the 7-day window, updatedAt staggered oldest→newest
+  // (i=11 is the most recent).
+  for (let i = 0; i < 12; i++) {
+    const row = await db().emailOutbox.create({
+      data: {
+        toEmail: `f${i}@k.example`,
+        template: "demand_decided",
+        payload: { ref: `DEM-${i}` },
+        status: "FAILED",
+        attempts: 6,
+        lastError: `boom ${i}`,
+      },
+    });
+    await db().$executeRaw`
+      UPDATE "EmailOutbox" SET "updatedAt" = ${new Date(
+        Date.now() - (20 - i) * 60_000,
+      )} WHERE id = ${row.id}`;
+  }
+
+  // Excluded: not FAILED.
+  await db().emailOutbox.create({
+    data: {
+      toEmail: "pending@k.example",
+      template: "demand_decided",
+      payload: {},
+      status: "PENDING",
+    },
+  });
+  // Excluded: FAILED but older than 7 days.
+  const stale = await db().emailOutbox.create({
+    data: {
+      toEmail: "stale@k.example",
+      template: "demand_decided",
+      payload: {},
+      status: "FAILED",
+      attempts: 6,
+      lastError: "ancient",
+    },
+  });
+  await db().$executeRaw`
+    UPDATE "EmailOutbox" SET "updatedAt" = ${new Date(
+      Date.now() - 8 * 24 * 60 * 60 * 1000,
+    )} WHERE id = ${stale.id}`;
+
+  const { count, recent } = await listFailedEmails(db());
+
+  expect(count).toBe(12);
+  expect(recent).toHaveLength(10);
+  // Newest first: f11 down to f2.
+  expect(recent.map((r) => r.toEmail)).toEqual([
+    "f11@k.example",
+    "f10@k.example",
+    "f9@k.example",
+    "f8@k.example",
+    "f7@k.example",
+    "f6@k.example",
+    "f5@k.example",
+    "f4@k.example",
+    "f3@k.example",
+    "f2@k.example",
+  ]);
+  expect(recent[0]).toEqual({
+    toEmail: "f11@k.example",
+    template: "demand_decided",
+    lastError: "boom 11",
+    attempts: 6,
+  });
 });
 
 test("hrefFor: internal vs guest deep links, case-insensitive subjectType", () => {

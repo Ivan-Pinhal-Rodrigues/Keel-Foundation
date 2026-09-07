@@ -110,6 +110,45 @@ export async function unreadCount(
   });
 }
 
+/** One failed-delivery row for the dashboard's email-health card. */
+export type FailedEmailRow = {
+  toEmail: string;
+  template: string;
+  lastError: string | null;
+  attempts: number;
+};
+
+/**
+ * Failed `EmailOutbox` deliveries in the last 7 days — the count plus the 10
+ * most recent, newest first. The dashboard overview composes this into its
+ * `emailFailures` tile; keeping the `emailOutbox` read here (spec 05 §8 owns the
+ * `EmailOutbox` table) lets `overview/service.ts` stay Prisma-free.
+ */
+export async function listFailedEmails(
+  client: PrismaClient = prisma,
+): Promise<{ count: number; recent: FailedEmailRow[] }> {
+  const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const where = {
+    status: "FAILED" as $Enums.OutboxStatus,
+    updatedAt: { gte: since },
+  };
+  const [count, recent] = await Promise.all([
+    client.emailOutbox.count({ where }),
+    client.emailOutbox.findMany({
+      where,
+      take: 10,
+      orderBy: { updatedAt: "desc" },
+      select: {
+        toEmail: true,
+        template: true,
+        lastError: true,
+        attempts: true,
+      },
+    }),
+  ]);
+  return { count, recent };
+}
+
 export async function markRead(
   actor: Actor,
   input: { ids: string[] } | { all: true },
