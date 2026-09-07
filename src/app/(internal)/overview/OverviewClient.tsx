@@ -1,12 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Panel } from "@/components/Panel";
 import { Tile } from "@/components/Tile";
 import { apiFetch } from "@/lib/api/client";
 import type { OverviewResponse } from "@/lib/api/schemas/overview";
+import { ActivityPanel } from "./panels/ActivityPanel";
 import { ApprovalsPanel } from "./panels/ApprovalsPanel";
+import { EmailDeliveryPanel } from "./panels/EmailDeliveryPanel";
+import { FunnelPanel } from "./panels/FunnelPanel";
 import { MyQueuePanel } from "./panels/MyQueuePanel";
+import { WindowsPanel } from "./panels/WindowsPanel";
 import styles from "./overview.module.css";
 
 /**
@@ -15,9 +18,9 @@ import styles from "./overview.module.css";
  * `GET /api/overview` on window `focus` and every 60s, keeping the last-good
  * payload on any transient failure. Both listeners are torn down on unmount.
  *
- * It renders the tile row plus the panel grid: `<MyQueuePanel>` +
- * `<ApprovalsPanel>` this task, and inline stub `<Panel>`s where Task 8 will
- * drop `ActivityPanel` / `FunnelPanel` / `WindowsPanel` / `EmailDeliveryPanel`.
+ * It renders the tile row plus the six-panel grid: `<MyQueuePanel>`,
+ * `<ApprovalsPanel>`, `<ActivityPanel>`, `<FunnelPanel>`, `<WindowsPanel>` and
+ * `<EmailDeliveryPanel>`, each fed from the current payload.
  */
 export function OverviewClient({ initial }: { initial: OverviewResponse }) {
   const [data, setData] = useState<OverviewResponse>(initial);
@@ -82,19 +85,10 @@ export function OverviewClient({ initial }: { initial: OverviewResponse }) {
         <MyQueuePanel rows={data.myQueue} />
         <ApprovalsPanel rows={data.approvals} />
 
-        {/* Task 8: ActivityPanel, FunnelPanel, WindowsPanel, EmailDeliveryPanel slot in here */}
-        <Panel title="Recent activity">
-          <p className={styles.stub}>Coming in the next update.</p>
-        </Panel>
-        <Panel title="Demand funnel">
-          <p className={styles.stub}>Coming in the next update.</p>
-        </Panel>
-        <Panel title="Scheduled windows">
-          <p className={styles.stub}>Coming in the next update.</p>
-        </Panel>
-        <Panel title="Email delivery">
-          <p className={styles.stub}>Coming in the next update.</p>
-        </Panel>
+        <ActivityPanel items={data.activity} />
+        <FunnelPanel stages={data.funnel} />
+        <WindowsPanel windows={data.windows} />
+        <EmailDeliveryPanel data={data.emailFailures} />
       </div>
     </section>
   );
