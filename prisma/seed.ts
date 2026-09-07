@@ -1,3 +1,4 @@
+import type { $Enums } from "@prisma/client";
 import { PrismaClient } from "@prisma/client";
 import { hashPassword } from "@/server/auth/password";
 
@@ -36,6 +37,7 @@ async function main() {
   if (process.env.NODE_ENV !== "production") {
     await seedDemoDemands();
     await seedDemoIncidents();
+    await seedDemoChanges();
   }
 }
 
@@ -297,6 +299,224 @@ async function seedDemoIncidents(): Promise<void> {
     "seeded demo: incidents INC-9001 (new) / INC-9002 (assigned) / " +
       "INC-9003 (in progress, overdue) / INC-9004 (resolved)",
   );
+}
+
+/**
+ * Demo changes for the change + approvals walkthrough (plan-03 Task 14).
+ *
+ * Composes with `main()`'s seed — it looks up the existing internal users
+ * (admin@keel.local, ceo@keel.local, cto@keel.local), the approved/pursued demand
+ * (DEM-9003), and the resolved incident (INC-9004) by their unique keys rather
+ * than creating duplicates. Everything is `upsert`ed on a unique key (change
+ * `ref`), with the approval / PIR / incident-link rows guarded by a pre-check, so
+ * a second run is a no-op. The fixed refs `CHG-9001..9003` sit far above the
+ * `Counter`-allocated `CHG-0001..N` range, so they never collide with changes
+ * created through the app.
+ *
+ * These rows are written directly, outside `runWithContext` — they carry no
+ * `AuditEvent` and fire no notifications. They are display fixtures, not a replay
+ * of the real lifecycle (the integration test covers that). The
+ * `ApprovalRequest` / `ApprovalStep` / `ApprovalDecision` rows are created here
+ * directly: the record-of-fact REVOKE only blocks `UPDATE` / `DELETE`, so an
+ * `INSERT` is fine, and the seed runs as the migrate role in any case.
+ */
+async function seedDemoChanges(): Promise<void> {
+  const admin = await prisma.user.findUniqueOrThrow({
+    where: { email: "admin@keel.local" },
+  });
+  const ceo = await prisma.user.findUniqueOrThrow({
+    where: { email: "ceo@keel.local" },
+  });
+  const cto = await prisma.user.findUniqueOrThrow({
+    where: { email: "cto@keel.local" },
+  });
+  const dem9003 = await prisma.demand.findUniqueOrThrow({
+    where: { ref: "DEM-9003" },
+  });
+  const inc9004 = await prisma.incident.findUniqueOrThrow({
+    where: { ref: "INC-9004" },
+  });
+
+  const now = new Date();
+  const day = 24 * 60 * 60 * 1000;
+
+  // CHG-9001 — a standalone draft: the RFC is written, nothing assessed yet.
+  await prisma.change.upsert({
+    where: { ref: "CHG-9001" },
+    update: {},
+    create: {
+      ref: "CHG-9001",
+      title: "Upgrade the Postgres minor version.",
+      changeType: "NORMAL",
+      rfc: "Move the managed Postgres instance to the latest minor release during a low-traffic window. No schema changes.",
+      status: "DRAFT",
+      ownerId: admin.id,
+    },
+  });
+
+  // CHG-9002 — scheduled, MEDIUM risk, converted from DEM-9003, with a resolved
+  // one-step standard approval and a change window a few days out.
+  const chg9002 = await prisma.change.upsert({
+    where: { ref: "CHG-9002" },
+    update: {},
+    create: {
+      ref: "CHG-9002",
+      title: "Add single sign-on to the client portal.",
+      changeType: "NORMAL",
+      rfc: "Add an OIDC provider to the client portal so guests sign in with their company account.",
+      riskLevel: "MEDIUM",
+      impactAssessment:
+        "Touches the portal sign-in path for every guest; internal users are unaffected.",
+      rollbackPlan:
+        "Feature-flag the SSO button off and fall back to password sign-in.",
+      status: "SCHEDULED",
+      ownerId: admin.id,
+      windowStart: new Date(now.getTime() + 3 * day),
+      windowEnd: new Date(now.getTime() + 3 * day + 2 * 60 * 60 * 1000),
+      originatingDemandId: dem9003.id,
+    },
+  });
+  await prisma.demand.update({
+    where: { id: dem9003.id },
+    data: { status: "CONVERTED" },
+  });
+  await seedResolvedApproval(chg9002.id, admin.id, "change.standard", [
+    {
+      order: 1,
+      requiredHat: "TECHNICAL_APPROVER",
+      deciderId: cto.id,
+      reason: "Rollback plan is sound and the blast radius is limited.",
+    },
+  ]);
+
+  // CHG-9003 — closed, HIGH risk, with a resolved two-step high-risk approval, a
+  // recorded post-implementation review, and a FIXES link to INC-9004.
+  const chg9003 = await prisma.change.upsert({
+    where: { ref: "CHG-9003" },
+    update: {},
+    create: {
+      ref: "CHG-9003",
+      title: "Fix the welcome-email template.",
+      changeType: "NORMAL",
+      rfc: "Correct the grammatical error in the welcome-email template and redeploy the mailer.",
+      riskLevel: "HIGH",
+      impactAssessment:
+        "Every new guest receives this email; a bad template would reach all of them.",
+      rollbackPlan: "Redeploy the previous mailer image.",
+      status: "CLOSED",
+      ownerId: admin.id,
+      implementedAt: new Date(now.getTime() - 2 * day),
+      closedAt: new Date(now.getTime() - day),
+    },
+  });
+  await seedResolvedApproval(chg9003.id, admin.id, "change.high_risk", [
+    {
+      order: 1,
+      requiredHat: "TECHNICAL_APPROVER",
+      deciderId: cto.id,
+      reason: "Template change only; the rollback is a one-line redeploy.",
+    },
+    {
+      order: 2,
+      requiredHat: "BUSINESS_APPROVER",
+      deciderId: ceo.id,
+      reason: "Customer-facing copy fix — worth doing promptly.",
+    },
+  ]);
+
+  const priorPir = await prisma.postImplementationReview.findUnique({
+    where: { changeId: chg9003.id },
+  });
+  if (!priorPir) {
+    await prisma.postImplementationReview.create({
+      data: {
+        changeId: chg9003.id,
+        valueRealized: "YES",
+        lessons:
+          "The template lint check would have caught this before release; it is now in CI.",
+        reviewedById: ceo.id,
+        reviewedAt: new Date(now.getTime() - day),
+      },
+    });
+  }
+
+  await prisma.changeIncidentLink.upsert({
+    where: {
+      changeId_incidentId_kind: {
+        changeId: chg9003.id,
+        incidentId: inc9004.id,
+        kind: "FIXES",
+      },
+    },
+    update: {},
+    create: {
+      changeId: chg9003.id,
+      incidentId: inc9004.id,
+      kind: "FIXES",
+    },
+  });
+
+  console.log(
+    "seeded demo: changes CHG-9001 (draft) / CHG-9002 (scheduled, from DEM-9003) / " +
+      "CHG-9003 (closed, fixes INC-9004)",
+  );
+}
+
+/**
+ * Write a fully resolved (APPROVED) approval request for a demo change: the
+ * request, its ordered steps (all APPROVED), and one APPROVED `ApprovalDecision`
+ * per step. Guarded so a second seed run finds the existing request and does
+ * nothing.
+ */
+async function seedResolvedApproval(
+  changeId: string,
+  createdById: string,
+  policyKey: string,
+  steps: {
+    order: number;
+    requiredHat: $Enums.Hat;
+    deciderId: string;
+    reason: string;
+  }[],
+): Promise<void> {
+  const prior = await prisma.approvalRequest.findFirst({
+    where: { subjectType: "change", subjectId: changeId },
+  });
+  if (prior) return;
+
+  const resolvedAt = new Date();
+  const request = await prisma.approvalRequest.create({
+    data: {
+      subjectType: "change",
+      subjectId: changeId,
+      policyKey,
+      createdById,
+      status: "APPROVED",
+      resolvedAt,
+      steps: {
+        create: steps.map((s) => ({
+          order: s.order,
+          requiredHat: s.requiredHat,
+          status: "APPROVED",
+          resolvedAt,
+        })),
+      },
+    },
+    include: { steps: { orderBy: { order: "asc" } } },
+  });
+
+  for (const step of request.steps) {
+    const spec = steps.find((s) => s.order === step.order);
+    if (!spec) continue;
+    await prisma.approvalDecision.create({
+      data: {
+        stepId: step.id,
+        actorId: spec.deciderId,
+        decision: "APPROVED",
+        reason: spec.reason,
+      },
+    });
+  }
 }
 
 main().finally(() => prisma.$disconnect());
