@@ -1,4 +1,4 @@
-import type { $Enums } from "@prisma/client";
+import type { $Enums, Prisma } from "@prisma/client";
 import { PrismaClient } from "@prisma/client";
 import { hashPassword } from "@/server/auth/password";
 
@@ -38,6 +38,7 @@ async function main() {
     await seedDemoDemands();
     await seedDemoIncidents();
     await seedDemoChanges();
+    await seedDemoNotifications();
   }
 }
 
@@ -517,6 +518,212 @@ async function seedResolvedApproval(
       },
     });
   }
+}
+
+/**
+ * Demo notifications + one failed email for the notifications / dashboard
+ * walkthrough (plan-04 Task 13).
+ *
+ * Composes with `main()`'s seed — it looks up the existing internal users
+ * (admin@keel.local, ceo@keel.local, cto@keel.local), the demo guest
+ * (guest@northwind.example), and the demo demand / incident / change rows by
+ * their unique keys rather than creating duplicates. The `payload` shape matches
+ * what `emitNotification` writes — `{ summary, subjectType, subjectId }` — so the
+ * bell menu and `/notifications` page's `serializeNotification` read it cleanly.
+ *
+ * Idempotent via a count guard: if `admin` already holds any notification the
+ * whole function is a no-op, so `pnpm prisma db seed` is safe to run twice. The
+ * single FAILED `EmailOutbox` row — content for the dashboard's email-delivery
+ * panel — sits under the same guard.
+ *
+ * These rows are written directly, outside `runWithContext` — they carry no
+ * `AuditEvent` and fire no real delivery. They are display fixtures.
+ */
+async function seedDemoNotifications(): Promise<void> {
+  const [admin, ceo, cto, guest] = await Promise.all([
+    prisma.user.findUniqueOrThrow({ where: { email: "admin@keel.local" } }),
+    prisma.user.findUniqueOrThrow({ where: { email: "ceo@keel.local" } }),
+    prisma.user.findUniqueOrThrow({ where: { email: "cto@keel.local" } }),
+    prisma.user.findUniqueOrThrow({
+      where: { email: "guest@northwind.example" },
+    }),
+  ]);
+
+  if ((await prisma.notification.count({ where: { userId: admin.id } })) > 0) {
+    console.log("  demo notifications already present, skipping");
+    return;
+  }
+
+  const [dem9001, dem9002, dem9003] = await Promise.all([
+    prisma.demand.findUniqueOrThrow({ where: { ref: "DEM-9001" } }),
+    prisma.demand.findUniqueOrThrow({ where: { ref: "DEM-9002" } }),
+    prisma.demand.findUniqueOrThrow({ where: { ref: "DEM-9003" } }),
+  ]);
+  const [inc9001, inc9002, inc9003] = await Promise.all([
+    prisma.incident.findUniqueOrThrow({ where: { ref: "INC-9001" } }),
+    prisma.incident.findUniqueOrThrow({ where: { ref: "INC-9002" } }),
+    prisma.incident.findUniqueOrThrow({ where: { ref: "INC-9003" } }),
+  ]);
+  const [chg9002, chg9003] = await Promise.all([
+    prisma.change.findUniqueOrThrow({ where: { ref: "CHG-9002" } }),
+    prisma.change.findUniqueOrThrow({ where: { ref: "CHG-9003" } }),
+  ]);
+
+  const now = Date.now();
+  const hour = 60 * 60 * 1000;
+
+  type Seed = {
+    userId: string;
+    kind: $Enums.NotificationKind;
+    subjectType: string;
+    subjectId: string;
+    summary: string;
+    read: boolean;
+    ageHours: number;
+  };
+
+  // A spread across all five NotificationKind values, some read some unread,
+  // pointing at the demo DEM-9001..3 / INC-9001..3 / CHG-9002..3 rows.
+  const seeds: Seed[] = [
+    {
+      userId: admin.id,
+      kind: "ASSIGNED",
+      subjectType: "incident",
+      subjectId: inc9003.id,
+      summary:
+        "INC-9003 assigned to you: Portal is returning 500 for all users.",
+      read: false,
+      ageHours: 1,
+    },
+    {
+      userId: admin.id,
+      kind: "OVERDUE",
+      subjectType: "incident",
+      subjectId: inc9003.id,
+      summary: "INC-9003 is past its SLA due time.",
+      read: false,
+      ageHours: 2,
+    },
+    {
+      userId: admin.id,
+      kind: "APPROVAL_NEEDED",
+      subjectType: "change",
+      subjectId: chg9002.id,
+      summary:
+        "CHG-9002 needs your approval: Add single sign-on to the client portal.",
+      read: false,
+      ageHours: 5,
+    },
+    {
+      userId: admin.id,
+      kind: "STATUS_CHANGED",
+      subjectType: "demand",
+      subjectId: dem9003.id,
+      summary: "DEM-9003 was approved: Single sign-on for the client portal.",
+      read: true,
+      ageHours: 30,
+    },
+    {
+      userId: admin.id,
+      kind: "COMMENTED",
+      subjectType: "incident",
+      subjectId: inc9002.id,
+      summary: "New comment on INC-9002: Invoices export as an empty file.",
+      read: true,
+      ageHours: 48,
+    },
+    {
+      userId: ceo.id,
+      kind: "APPROVAL_NEEDED",
+      subjectType: "change",
+      subjectId: chg9003.id,
+      summary: "CHG-9003 needs your approval: Fix the welcome-email template.",
+      read: true,
+      ageHours: 40,
+    },
+    {
+      userId: ceo.id,
+      kind: "STATUS_CHANGED",
+      subjectType: "demand",
+      subjectId: dem9002.id,
+      summary: "DEM-9002 entered triage: Bulk invoice download.",
+      read: false,
+      ageHours: 6,
+    },
+    {
+      userId: cto.id,
+      kind: "ASSIGNED",
+      subjectType: "incident",
+      subjectId: inc9002.id,
+      summary: "INC-9002 assigned to you: Invoices export as an empty file.",
+      read: false,
+      ageHours: 3,
+    },
+    {
+      userId: cto.id,
+      kind: "STATUS_CHANGED",
+      subjectType: "change",
+      subjectId: chg9002.id,
+      summary:
+        "CHG-9002 is now scheduled: Add single sign-on to the client portal.",
+      read: true,
+      ageHours: 26,
+    },
+    {
+      userId: guest.id,
+      kind: "STATUS_CHANGED",
+      subjectType: "demand",
+      subjectId: dem9001.id,
+      summary: "Your request DEM-9001 is being reviewed by the Keel team.",
+      read: false,
+      ageHours: 4,
+    },
+    {
+      userId: guest.id,
+      kind: "COMMENTED",
+      subjectType: "incident",
+      subjectId: inc9001.id,
+      summary:
+        "The Keel team replied on INC-9001: Login page slow after the last release.",
+      read: true,
+      ageHours: 20,
+    },
+  ];
+
+  await prisma.notification.createMany({
+    data: seeds.map((s) => ({
+      userId: s.userId,
+      kind: s.kind,
+      subjectType: s.subjectType,
+      subjectId: s.subjectId,
+      payload: {
+        summary: s.summary,
+        subjectType: s.subjectType,
+        subjectId: s.subjectId,
+      } as Prisma.InputJsonObject,
+      createdAt: new Date(now - s.ageHours * hour),
+      readAt: s.read
+        ? new Date(now - s.ageHours * hour + 10 * 60 * 1000)
+        : null,
+    })),
+  });
+
+  // One FAILED delivery so the dashboard's email-delivery panel has content.
+  await prisma.emailOutbox.create({
+    data: {
+      toEmail: "guest@northwind.example",
+      template: "demand_decided",
+      payload: { ref: "DEM-9002", status: "TRIAGING" },
+      status: "FAILED",
+      attempts: 6,
+      lastError: "SMTP 550 5.1.1: recipient address rejected: user unknown",
+    },
+  });
+
+  console.log(
+    `seeded demo: ${seeds.length} notifications (admin/ceo/cto/guest, all ` +
+      "five kinds, some unread) + 1 failed EmailOutbox row",
+  );
 }
 
 main().finally(() => prisma.$disconnect());
