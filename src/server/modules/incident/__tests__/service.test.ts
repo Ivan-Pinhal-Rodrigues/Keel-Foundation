@@ -8,6 +8,7 @@ import {
   createIncident,
   getIncidentForActor,
   listIncidents,
+  listOverdueIncidents,
   reopenIncident,
   transitionIncident,
 } from "@/server/modules/incident/service";
@@ -781,4 +782,94 @@ test("a guest cannot transition or reopen (ForbiddenError)", async () => {
 
   const row = await db().incident.findUniqueOrThrow({ where: { id: inc.id } });
   expect(row.status).toBe("IN_PROGRESS");
+});
+
+// --- Plan-04 Task 5: dashboard read API -------------------------------------
+
+test("listOverdueIncidents: only open past-due rows, most overdue first, with the assignee display name", async () => {
+  const dev = await seedInternal(["DEVELOPER"]);
+  const assignee = await db().user.create({
+    data: {
+      email: `a-${rand()}@k`,
+      passwordHash: "x",
+      displayName: "Ada Lovelace",
+      kind: "INTERNAL",
+      hats: [],
+    },
+  });
+  const base = {
+    description: "d",
+    affectedService: "s",
+    impact: "MEDIUM" as const,
+    urgency: "MEDIUM" as const,
+    priority: "P3" as const,
+    reportedById: dev.id,
+  };
+
+  const overdue = await db().incident.create({
+    data: {
+      ...base,
+      ref: `INC-${rand()}`,
+      title: "late",
+      status: "IN_PROGRESS",
+      dueAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
+      overdue: true,
+      assigneeId: assignee.id,
+    },
+  });
+  const moreOverdue = await db().incident.create({
+    data: {
+      ...base,
+      ref: `INC-${rand()}`,
+      title: "later",
+      status: "ASSIGNED",
+      dueAt: new Date(Date.now() - 5 * 60 * 60 * 1000),
+      overdue: true,
+    },
+  });
+  // Not overdue: due in the future.
+  const future = await db().incident.create({
+    data: {
+      ...base,
+      ref: `INC-${rand()}`,
+      title: "fine",
+      status: "NEW",
+      dueAt: new Date(Date.now() + 60 * 60 * 1000),
+      overdue: false,
+    },
+  });
+  // Past due but RESOLVED → excluded.
+  const resolved = await db().incident.create({
+    data: {
+      ...base,
+      ref: `INC-${rand()}`,
+      title: "done",
+      status: "RESOLVED",
+      dueAt: new Date(Date.now() - 60 * 60 * 1000),
+      overdue: false,
+      resolution: "fixed",
+      resolvedAt: new Date(),
+    },
+  });
+
+  const rows = await listOverdueIncidents(db());
+  const ids = rows.map((r) => r.id);
+  // The per-file test DB is shared; assert on the seeded rows, not the whole set.
+  expect(ids).not.toContain(future.id);
+  expect(ids).not.toContain(resolved.id);
+  // Most overdue first: moreOverdue (−5h) before overdue (−2h).
+  expect(
+    ids.filter((id) => id === overdue.id || id === moreOverdue.id),
+  ).toEqual([moreOverdue.id, overdue.id]);
+
+  const mo = rows.find((r) => r.id === moreOverdue.id)!;
+  expect(mo).toMatchObject({
+    ref: moreOverdue.ref,
+    title: "later",
+    priority: "P3",
+    assigneeName: null,
+  });
+  const o = rows.find((r) => r.id === overdue.id)!;
+  expect(o.assigneeName).toBe("Ada Lovelace");
+  expect(o.dueAt).toBe(overdue.dueAt.toISOString());
 });

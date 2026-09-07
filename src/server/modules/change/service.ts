@@ -334,6 +334,53 @@ export async function listChanges(
   return rows.map(serializeChangeListItem);
 }
 
+/**
+ * Scheduled change windows opening within the next 14 days, for the dashboard
+ * overview — earliest window first, dates as ISO strings. A SCHEDULED change
+ * always has a window (plan-03 Task 7 sets it on the transition), but the
+ * `windowStart != null` guard is kept anyway.
+ */
+export async function listScheduledWindows(
+  client: PrismaClient = prisma,
+): Promise<
+  {
+    id: string;
+    ref: string;
+    title: string;
+    windowStart: string;
+    windowEnd: string;
+  }[]
+> {
+  const horizon = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
+  const rows = await client.change.findMany({
+    where: {
+      status: "SCHEDULED",
+      windowStart: { not: null, lte: horizon },
+    },
+    select: {
+      id: true,
+      ref: true,
+      title: true,
+      windowStart: true,
+      windowEnd: true,
+    },
+    orderBy: { windowStart: "asc" },
+  });
+  return rows.flatMap((row) =>
+    row.windowStart && row.windowEnd
+      ? [
+          {
+            id: row.id,
+            ref: row.ref,
+            title: row.title,
+            windowStart: row.windowStart.toISOString(),
+            windowEnd: row.windowEnd.toISOString(),
+          },
+        ]
+      : [],
+  );
+}
+
 /** A short, stable timestamp string for a timeline row ("2026-09-06 14:30"). */
 function formatActivityTime(at: Date): string {
   return at.toISOString().slice(0, 16).replace("T", " ");

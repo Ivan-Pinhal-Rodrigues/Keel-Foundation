@@ -12,6 +12,7 @@ import {
   decideDemand,
   rejectDemand,
   convertDemand,
+  countDemandsByStatus,
 } from "@/server/modules/demand/service";
 import type { Actor, Hat } from "@/server/policy/actor";
 import {
@@ -741,4 +742,47 @@ test("getDemandForActor for a guest whose demand is CONVERTED and whose change i
 
   const view = await getDemandForActor(guestActor, id, db());
   expect(view.status).toBe("Delivered");
+});
+
+// --- Plan-04 Task 5: dashboard read API -------------------------------------
+
+test("countDemandsByStatus: every status key present, and the tallies move by the seeded deltas", async () => {
+  const dev = await seedInternal(["DEVELOPER"]);
+  const mk = (status: "SUBMITTED" | "TRIAGING" | "CONVERTED") =>
+    db().demand.create({
+      data: {
+        ref: `DEM-${rand()}`,
+        title: "T",
+        problem: "P",
+        source: "INTERNAL",
+        status,
+        submittedById: dev.id,
+      },
+    });
+
+  // The per-file test DB is shared, so assert on deltas, not absolutes.
+  const before = await countDemandsByStatus(db());
+  await mk("SUBMITTED");
+  await mk("SUBMITTED");
+  await mk("TRIAGING");
+  await mk("CONVERTED");
+  const after = await countDemandsByStatus(db());
+
+  expect(Object.keys(after).sort()).toEqual(
+    [
+      "APPROVED",
+      "CONVERTED",
+      "REJECTED",
+      "SUBMITTED",
+      "TRIAGING",
+      "WORTH_ASSESSED",
+    ].sort(),
+  );
+  expect(Object.values(after).every((n) => typeof n === "number")).toBe(true);
+  expect(after.SUBMITTED - before.SUBMITTED).toBe(2);
+  expect(after.TRIAGING - before.TRIAGING).toBe(1);
+  expect(after.CONVERTED - before.CONVERTED).toBe(1);
+  expect(after.WORTH_ASSESSED - before.WORTH_ASSESSED).toBe(0);
+  expect(after.APPROVED - before.APPROVED).toBe(0);
+  expect(after.REJECTED - before.REJECTED).toBe(0);
 });

@@ -85,6 +85,41 @@ export async function createDemand(
   return { id: demand.id, ref: demand.ref };
 }
 
+/** Every `DemandStatus` value, in spec order — the seed for a fully-populated
+ *  count record (`noUncheckedIndexedAccess`-safe: no key can be missing). */
+const DEMAND_STATUSES = [
+  "SUBMITTED",
+  "TRIAGING",
+  "WORTH_ASSESSED",
+  "APPROVED",
+  "REJECTED",
+  "CONVERTED",
+] as const satisfies readonly $Enums.DemandStatus[];
+
+/**
+ * Count demands by status for the dashboard overview — every `DemandStatus` key
+ * present, seeded to 0, then overlaid with the `groupBy` tallies.
+ */
+export async function countDemandsByStatus(
+  client: PrismaClient = prisma,
+): Promise<Record<$Enums.DemandStatus, number>> {
+  const rows = await client.demand.groupBy({
+    by: ["status"],
+    _count: { _all: true },
+  });
+  const counts = DEMAND_STATUSES.reduce(
+    (acc, key) => {
+      acc[key] = 0;
+      return acc;
+    },
+    {} as Record<$Enums.DemandStatus, number>,
+  );
+  for (const row of rows) {
+    counts[row.status] = row._count._all;
+  }
+  return counts;
+}
+
 export async function listDemands(
   actor: Actor,
   filters: {

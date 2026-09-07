@@ -152,6 +152,41 @@ export async function listIncidents(
   );
 }
 
+/**
+ * Overdue incidents for the dashboard overview: still open (not RESOLVED /
+ * CLOSED) and past `dueAt`, most overdue first. A light row — id / ref / title /
+ * priority / dueAt (ISO) / assignee display name (null when unassigned) — not a
+ * full `serializeIncident` (that needs an `Actor`, and the dashboard card shows
+ * only these fields).
+ */
+export async function listOverdueIncidents(
+  client: PrismaClient = prisma,
+): Promise<Record<string, unknown>[]> {
+  const rows = await client.incident.findMany({
+    where: {
+      status: { notIn: ["RESOLVED", "CLOSED"] },
+      dueAt: { lt: new Date() },
+    },
+    select: {
+      id: true,
+      ref: true,
+      title: true,
+      priority: true,
+      dueAt: true,
+      assignee: { select: { displayName: true } },
+    },
+    orderBy: { dueAt: "asc" },
+  });
+  return rows.map((row) => ({
+    id: row.id,
+    ref: row.ref,
+    title: row.title,
+    priority: row.priority,
+    dueAt: row.dueAt.toISOString(),
+    assigneeName: row.assignee?.displayName ?? null,
+  }));
+}
+
 /** A short, stable timestamp string for a `Timeline` row ("2026-09-06 14:30"). */
 function formatActivityTime(at: Date): string {
   return at.toISOString().slice(0, 16).replace("T", " ");

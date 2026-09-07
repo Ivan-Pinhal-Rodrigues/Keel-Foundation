@@ -11,6 +11,7 @@ import {
   getChangeForActor,
   linkIncident,
   listChanges,
+  listScheduledWindows,
   recordPir,
   rollbackChange,
   scheduleChange,
@@ -988,4 +989,54 @@ test("advancing to CLOSED with an originating demand notifies the demand's submi
     where: { action: "change.closed", subjectId: id },
   });
   expect(closed).toHaveLength(1);
+});
+
+// --- Plan-04 Task 5: dashboard read API -------------------------------------
+
+test("listScheduledWindows: only SCHEDULED changes with a window inside 14 days, earliest first, ISO strings", async () => {
+  const dev = await seedInternal(["DEVELOPER"]);
+  const day = 24 * 60 * 60 * 1000;
+  const mkWindow = (
+    title: string,
+    status: "SCHEDULED" | "DRAFT",
+    startOffsetDays: number | null,
+  ) =>
+    db().change.create({
+      data: {
+        ref: `CHG-${rand()}`,
+        title,
+        changeType: "NORMAL",
+        status,
+        ownerId: dev.id,
+        windowStart:
+          startOffsetDays == null
+            ? null
+            : new Date(Date.now() + startOffsetDays * day),
+        windowEnd:
+          startOffsetDays == null
+            ? null
+            : new Date(Date.now() + startOffsetDays * day + 60 * 60 * 1000),
+      },
+    });
+
+  const earlier = await mkWindow("earlier", "SCHEDULED", 1);
+  const soon = await mkWindow("soon", "SCHEDULED", 3);
+  const far = await mkWindow("far", "SCHEDULED", 20);
+  const draft = await mkWindow("draft", "DRAFT", null);
+
+  const rows = await listScheduledWindows(db());
+  const ids = rows.map((r) => r.id);
+  // The per-file test DB is shared; assert on the seeded rows, not the whole set.
+  expect(ids).not.toContain(far.id); // window beyond the 14-day horizon
+  expect(ids).not.toContain(draft.id); // not SCHEDULED / no window
+  // Earliest window first: earlier (+1d) before soon (+3d).
+  expect(ids.filter((id) => id === earlier.id || id === soon.id)).toEqual([
+    earlier.id,
+    soon.id,
+  ]);
+
+  const s = rows.find((r) => r.id === soon.id)!;
+  expect(s).toMatchObject({ ref: soon.ref, title: "soon" });
+  expect(s.windowStart).toBe(soon.windowStart!.toISOString());
+  expect(s.windowEnd).toBe(soon.windowEnd!.toISOString());
 });
