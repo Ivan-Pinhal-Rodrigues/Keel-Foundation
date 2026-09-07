@@ -1,0 +1,130 @@
+/*
+ * `/overview` — the internal dashboard (spec 06 §5, plan-04 Task 7). Density
+ * and spacing follow the change / incident registers; all colour comes from
+ * src/styles/tokens.css custom properties — no raw hex, no Tailwind.
+ */
+
+.wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+
+@media (max-width: 960px) {
+  .tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 10px;
+  text-decoration: none;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: var(--surface);
+  transition:
+    border-color 0.1s,
+    background 0.1s;
+}
+
+.row:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-2);
+}
+
+.row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.icon {
+  flex: 0 0 auto;
+  width: 15px;
+  height: 15px;
+  color: var(--text-3);
+}
+
+.icon svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.7;
+}
+
+.ref {
+  flex: 0 0 auto;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.01em;
+  color: var(--text-3);
+}
+
+.title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.hint {
+  flex: 0 0 auto;
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+/* The hint sits before any pill; when a pill follows, it keeps the auto margin
+   and the pill trails it. */
+.row .hint + span {
+  margin-left: 8px;
+}
+
+.empty {
+  margin: 0;
+  padding: 18px 14px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-3);
+}
+
+.stub {
+  margin: 0;
+  padding: 14px;
+  font-size: 12px;
+  color: var(--text-3);
+}
