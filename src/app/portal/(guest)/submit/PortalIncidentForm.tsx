@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { type FormEvent, useState } from "react";
 import { apiFetch } from "@/lib/api/client";
-import styles from "./portal-incidents.module.css";
+import styles from "../incidents/portal-incidents.module.css";
 
 /**
  * The guest's "report a problem" form (`plans/plan-02-incident.md` Task 10,

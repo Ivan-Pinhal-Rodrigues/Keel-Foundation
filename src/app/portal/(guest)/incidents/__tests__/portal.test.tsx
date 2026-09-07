@@ -3,7 +3,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { PortalIncidentDetail } from "@/app/portal/(guest)/incidents/PortalIncidentDetail";
-import { PortalIncidentForm } from "@/app/portal/(guest)/incidents/PortalIncidentForm";
+import { PortalIncidentForm } from "@/app/portal/(guest)/submit/PortalIncidentForm";
 import { PortalIncidentList } from "@/app/portal/(guest)/incidents/PortalIncidentList";
 import { apiFetch } from "@/lib/api/client";
 
