@@ -46,6 +46,7 @@
 }
 
 .card {
+  position: relative;
   display: grid;
   gap: 0.35rem;
   padding: 0.9rem 1rem;
@@ -62,6 +63,18 @@
 .card:hover {
   border-color: var(--border-strong);
   box-shadow: var(--shadow-sm);
+}
+
+/* Unread-comment marker — a small dot, top-right of the card. Positional
+ * only: it carries no message content, just an aria-label. */
+.dot {
+  position: absolute;
+  top: 0.6rem;
+  right: 0.6rem;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--accent);
 }
 
 .cardRef {

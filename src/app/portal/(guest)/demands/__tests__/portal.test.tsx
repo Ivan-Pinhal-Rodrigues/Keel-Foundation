@@ -1,6 +1,12 @@
 /** @vitest-environment jsdom */
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { CommentThread } from "@/app/portal/(guest)/demands/CommentThread";
 import { PortalDemandDetail } from "@/app/portal/(guest)/demands/PortalDemandDetail";
@@ -57,6 +63,23 @@ test("the list shows plain-word statuses and never a raw enum, and links each ro
 test("the list renders an empty state when the guest has no requests", () => {
   render(<PortalDemandList rows={[]} />);
   expect(screen.getByText(/no requests yet/i)).toBeTruthy();
+});
+
+test("an unread-comment dot marks only the cards whose id is in unreadIds", () => {
+  render(<PortalDemandList rows={rows} unreadIds={["d2"]} />);
+
+  const firstCard = screen.getByRole("link", { name: /Faster exports/i });
+  const secondCard = screen.getByRole("link", {
+    name: /SSO for the finance team/i,
+  });
+
+  expect(within(secondCard).getByLabelText("unread messages")).toBeTruthy();
+  expect(within(firstCard).queryByLabelText("unread messages")).toBeNull();
+});
+
+test("no unread-comment dot renders when unreadIds is empty", () => {
+  render(<PortalDemandList rows={rows} unreadIds={[]} />);
+  expect(screen.queryByLabelText("unread messages")).toBeNull();
 });
 
 test("detail shows the problem, the plain-word status, the guest activity, and a message box", async () => {

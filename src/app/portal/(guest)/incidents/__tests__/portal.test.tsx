@@ -1,6 +1,12 @@
 /** @vitest-environment jsdom */
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { PortalIncidentDetail } from "@/app/portal/(guest)/incidents/PortalIncidentDetail";
 import { PortalIncidentForm } from "@/app/portal/(guest)/submit/PortalIncidentForm";
@@ -66,6 +72,21 @@ test("the list shows each incident's title, status word, affected software and S
 test("the list renders an empty state when the guest has no incidents", () => {
   render(<PortalIncidentList rows={[]} />);
   expect(screen.getByText(/no incidents yet/i)).toBeTruthy();
+});
+
+test("an unread-comment dot marks only the cards whose id is in unreadIds", () => {
+  render(<PortalIncidentList rows={rows} unreadIds={["i2"]} />);
+
+  const firstCard = screen.getByRole("link", { name: /Checkout is down/i });
+  const secondCard = screen.getByRole("link", { name: /Reports are slow/i });
+
+  expect(within(secondCard).getByLabelText("unread messages")).toBeTruthy();
+  expect(within(firstCard).queryByLabelText("unread messages")).toBeNull();
+});
+
+test("no unread-comment dot renders when unreadIds is empty", () => {
+  render(<PortalIncidentList rows={rows} unreadIds={[]} />);
+  expect(screen.queryByLabelText("unread messages")).toBeNull();
 });
 
 test("detail for an in-progress incident shows the plain-word status, the SLA line, the description, a message box, and no internal vocabulary", async () => {

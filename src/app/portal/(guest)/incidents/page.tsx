@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { getCurrentActor } from "@/server/auth/current";
 import { listIncidents } from "@/server/modules/incident/service";
+import { listNotifications } from "@/server/modules/notify/read";
 import { PortalIncidentList } from "./PortalIncidentList";
 import styles from "./portal-incidents.module.css";
 
@@ -23,10 +24,19 @@ export default async function PortalIncidentsPage() {
 
   const rows = await listIncidents(actor, {});
 
+  // Incidents with an unread message from the internal team — a `COMMENTED`
+  // notification. `subjectId` is the incident's `id` (matches `row.id`). A
+  // plain array (deduped); `PortalIncidentList` builds the `Set`.
+  const unread = await listNotifications(actor, {
+    kind: "COMMENTED",
+    unread: true,
+  });
+  const unreadIds = [...new Set(unread.map((n) => n.subjectId))];
+
   return (
     <>
       <h1 className={styles.pageHead}>Your incidents</h1>
-      <PortalIncidentList rows={rows} />
+      <PortalIncidentList rows={rows} unreadIds={unreadIds} />
     </>
   );
 }

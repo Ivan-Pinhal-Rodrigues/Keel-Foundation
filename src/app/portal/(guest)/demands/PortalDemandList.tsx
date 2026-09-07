@@ -17,10 +17,23 @@ function isoDate(value: unknown): string {
   return Number.isNaN(date.getTime()) ? "" : date.toISOString().slice(0, 10);
 }
 
-export function PortalDemandList({ rows }: { rows: Row[] }) {
+export function PortalDemandList({
+  rows,
+  unreadIds = [],
+}: {
+  rows: Row[];
+  /**
+   * Demand ids with an unread team message (a `COMMENTED` notification, from
+   * `page.tsx`). A plain array — the `Set` is built here so the prop stays
+   * serialisable if this list ever becomes a client component.
+   */
+  unreadIds?: string[];
+}) {
   if (rows.length === 0) {
     return <p className={styles.empty}>You have no requests yet.</p>;
   }
+
+  const unread = new Set(unreadIds);
 
   return (
     <ul className={styles.list}>
@@ -29,6 +42,9 @@ export function PortalDemandList({ rows }: { rows: Row[] }) {
         return (
           <li key={id}>
             <a className={styles.card} href={`/portal/demands/${id}`}>
+              {unread.has(id) && (
+                <span className={styles.dot} aria-label="unread messages" />
+              )}
               <span className={styles.cardRef}>{String(row.ref)}</span>
               <span className={styles.cardTitle}>{String(row.title)}</span>
               <span className={styles.cardMeta}>
