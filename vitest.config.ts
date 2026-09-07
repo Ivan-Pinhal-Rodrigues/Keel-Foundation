@@ -1,4 +1,4 @@
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 import tsconfigPaths from "vite-tsconfig-paths";
 
 export default defineConfig({
@@ -9,6 +9,10 @@ export default defineConfig({
   esbuild: { jsx: "automatic", jsxImportSource: "react" },
   test: {
     environment: "node",
+    // The Playwright end-to-end suite (`e2e/`) uses `@playwright/test`, which
+    // must run under the Playwright runner (`pnpm test:e2e`), never vitest — its
+    // `*.spec.ts` files would otherwise match vitest's default `include`.
+    exclude: [...configDefaults.exclude, "e2e/**"],
     setupFiles: ["./vitest.setup.ts"],
     // Runs once in the main process, before any worker: migrates the template
     // database every test file clones (src/test/global-setup.ts). `setupFiles`
