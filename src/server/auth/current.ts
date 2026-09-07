@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import type { $Enums } from "@prisma/client";
 import { SESSION_COOKIE } from "@/lib/http/cookies";
 import { getSessionAndUser } from "@/server/auth/session";
+import { prisma } from "@/server/db/client";
 import type { Actor } from "@/server/policy/actor";
 
 /**
@@ -23,6 +24,7 @@ export type Me = {
   kind: $Enums.UserKind;
   hats: $Enums.Hat[];
   clientId: string | null;
+  clientName: string | null;
   displayName: string;
   email: string;
 };
@@ -40,7 +42,26 @@ const resolve = cache(async (): Promise<{ user: Me } | null> => {
   // expired session; the `!s.user.isActive` guard is belt-and-braces.
   if (!s || !s.user.isActive) return null;
   const { id, kind, hats, clientId, displayName, email } = s.user;
-  return { user: { id, kind, hats, clientId, displayName, email } };
+  // Guests carry a `clientId` (CHECK-enforced); resolve its display name for the
+  // portal top bar. `resolve` is `cache`-deduped, so a layout calling both
+  // `getCurrentActor()` and `whoami()` pays for this lookup once.
+  const client = clientId
+    ? await prisma.client.findUnique({
+        where: { id: clientId },
+        select: { name: true },
+      })
+    : null;
+  return {
+    user: {
+      id,
+      kind,
+      hats,
+      clientId,
+      clientName: client?.name ?? null,
+      displayName,
+      email,
+    },
+  };
 });
 
 /** The current request's actor, for server components and layouts. Returns

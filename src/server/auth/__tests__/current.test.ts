@@ -83,7 +83,37 @@ test("a live session cookie → the Actor and Me", async () => {
     clientId: null,
   });
   const me = await whoami();
-  expect(me).toMatchObject({ id: u.id, displayName: "Casey", email: "ceo@k" });
+  expect(me).toMatchObject({
+    id: u.id,
+    displayName: "Casey",
+    email: "ceo@k",
+    clientName: null,
+  });
+});
+
+test("a guest's Me carries the client org name", async () => {
+  const client = await db.client.create({
+    data: { name: "Northwind Traders" },
+  });
+  const g = await db.user.create({
+    data: {
+      email: "guest@northwind",
+      passwordHash: "x",
+      displayName: "Nadia",
+      kind: "GUEST",
+      hats: [],
+      clientId: client.id,
+    },
+  });
+  const { token } = await createSession(g.id);
+  cookieStore.value = token;
+
+  const me = await whoami();
+  expect(me).toMatchObject({
+    id: g.id,
+    clientId: client.id,
+    clientName: "Northwind Traders",
+  });
 });
 
 test("an expired / unknown token → null (not a throw)", async () => {

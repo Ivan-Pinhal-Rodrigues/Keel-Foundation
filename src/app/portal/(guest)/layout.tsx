@@ -1,12 +1,11 @@
 import type { ReactNode } from "react";
-import Link from "next/link";
 import { redirect } from "next/navigation";
-import { getCurrentActor } from "@/server/auth/current";
-import { LogoutButton } from "@/components/LogoutButton";
+import { getCurrentActor, whoami } from "@/server/auth/current";
+import { PortalTopBar } from "./PortalTopBar";
 import styles from "./portal.module.css";
 
 /**
- * Shell + guard for the guest portal proper (`/portal`, `/portal/requests`,
+ * Shell + guard for the guest portal proper (`/portal`, `/portal/demands`,
  * `/portal/incidents`, `/portal/submit`, …). Server component: no session →
  * `/login`; an internal session → `/overview` (spec 07 §6 — internal users have
  * no portal).
@@ -15,9 +14,8 @@ import styles from "./portal.module.css";
  * 07 §4.1) and lives at `src/app/portal/invite/`, outside `(guest)/` — is not
  * caught by this guard.
  *
- * Deliberately minimal chrome: product mark, a three-link nav, and sign out.
- * plan-04 replaces this with the real portal layout (client org name,
- * notification bell, account menu).
+ * Chrome (client org name, notification bell, account menu) lives in the client
+ * `<PortalTopBar>`.
  */
 export default async function GuestPortalLayout({
   children,
@@ -28,24 +26,15 @@ export default async function GuestPortalLayout({
   if (!actor) redirect("/login");
   if (actor.kind !== "GUEST") redirect("/overview");
 
+  // `whoami()` re-reads the same (cache-deduped) session for the display fields
+  // the top bar needs. Non-null in practice — the guard just resolved the actor
+  // — but a null means the session died mid-render: treat it as logged out.
+  const me = await whoami();
+  if (!me) redirect("/login");
+
   return (
     <div className={styles.shell}>
-      <header className={styles.bar}>
-        <span className={styles.brand}>
-          <span className={styles.glyph} aria-hidden="true">
-            <svg viewBox="0 0 30 30">
-              <path d="M15 3 L26 9 L15 15 L4 9 Z" fill="currentColor" />
-            </svg>
-          </span>
-          <b>Keel</b>
-        </span>
-        <nav className={styles.nav} aria-label="Portal">
-          <Link href="/portal/demands">Requests</Link>
-          <Link href="/portal/incidents">Incidents</Link>
-          <Link href="/portal/incidents/new">Report a problem</Link>
-        </nav>
-        <LogoutButton />
-      </header>
+      <PortalTopBar clientName={me.clientName} displayName={me.displayName} />
       <main className={styles.main}>{children}</main>
     </div>
   );

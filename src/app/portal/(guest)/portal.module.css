@@ -43,6 +43,15 @@
   letter-spacing: -0.02em;
 }
 
+.org {
+  padding-left: 0.75rem;
+  margin-left: 0.75rem;
+  border-left: 1px solid var(--border);
+  color: var(--text-2);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
 .nav {
   display: flex;
   align-items: center;
@@ -60,6 +69,67 @@
 
 .nav a:hover {
   color: var(--accent-ink);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.account {
+  position: relative;
+}
+
+.account > summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+.account > summary::-webkit-details-marker {
+  display: none;
+}
+
+.accountTrigger {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.6rem;
+  border-radius: var(--radius);
+  color: var(--text-2);
+}
+
+.accountTrigger:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.accountName {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.accountMenu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.4rem);
+  z-index: 30;
+  min-width: 12rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.accountMenuName {
+  margin: 0;
+  color: var(--text-2);
+  font-size: 0.85rem;
+  font-weight: 600;
 }
 
 .main {
