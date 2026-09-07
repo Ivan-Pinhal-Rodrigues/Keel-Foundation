@@ -14,6 +14,10 @@ const KINDS = [
   "OVERDUE",
 ] as const;
 
+/** The `NotificationKind` values, for a filter `<select>` on the client. */
+export const NOTIFICATION_KINDS = KINDS;
+export type NotificationKind = (typeof KINDS)[number];
+
 /**
  * `GET /api/notifications` query string. `unread` arrives as the literal string
  * `"true"` / `"false"` (query params are always strings) and is folded to a

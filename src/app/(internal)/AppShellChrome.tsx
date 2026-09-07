@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { AppShell, type NavItem } from "@/components/AppShell";
 import { LogoutButton } from "@/components/LogoutButton";
+import { NotificationBell } from "@/components/NotificationBell";
 import { navKeyFor } from "./nav";
 import styles from "./AppShellChrome.module.css";
 
@@ -84,6 +85,7 @@ export function AppShellChrome({
       user={user}
       topbar={
         <div className={styles.topbar}>
+          <NotificationBell />
           <LogoutButton />
         </div>
       }
