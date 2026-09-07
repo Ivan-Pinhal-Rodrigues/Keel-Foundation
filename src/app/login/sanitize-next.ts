@@ -8,11 +8,9 @@
  * resolves it to `https://evil.com/` — an external redirect right after login.
  *
  * Anything that resolves off-origin, or does not parse, falls back to
- * `/demands`. A same-origin value is returned as its path + query + hash only.
+ * `/overview`. A same-origin value is returned as its path + query + hash only.
  */
-// TODO(plan-06): the fallback destination becomes /overview once the dashboard
-// ships.
-const FALLBACK = "/demands";
+const FALLBACK = "/overview";
 
 export function sanitizeNext(raw: string | string[] | undefined): string {
   const candidate = Array.isArray(raw) ? raw[0] : raw;

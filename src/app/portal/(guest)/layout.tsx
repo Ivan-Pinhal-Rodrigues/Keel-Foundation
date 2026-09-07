@@ -8,7 +8,7 @@ import styles from "./portal.module.css";
 /**
  * Shell + guard for the guest portal proper (`/portal`, `/portal/requests`,
  * `/portal/incidents`, `/portal/submit`, …). Server component: no session →
- * `/login`; an internal session → `/demands` (spec 07 §6 — internal users have
+ * `/login`; an internal session → `/overview` (spec 07 §6 — internal users have
  * no portal).
  *
  * This is a route group so that `/portal/invite/:token` — which is PUBLIC (spec
@@ -26,8 +26,7 @@ export default async function GuestPortalLayout({
 }) {
   const actor = await getCurrentActor();
   if (!actor) redirect("/login");
-  // TODO(plan-06): internal home becomes /overview once the dashboard ships.
-  if (actor.kind !== "GUEST") redirect("/demands");
+  if (actor.kind !== "GUEST") redirect("/overview");
 
   return (
     <div className={styles.shell}>

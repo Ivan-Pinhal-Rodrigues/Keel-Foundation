@@ -48,7 +48,7 @@ export function LoginForm({ next }: { next: string }) {
       if (res.ok) {
         // The cookie is set; leave the button disabled through the navigation
         // so a second click cannot fire a second request.
-        router.push(next || "/demands");
+        router.push(next || "/overview");
         return;
       }
       setError(res.status === 401 ? WRONG_CREDENTIALS : GENERIC_ERROR);

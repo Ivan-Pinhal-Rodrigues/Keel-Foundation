@@ -29,7 +29,7 @@ test("no session → redirects to /login", async () => {
   );
 });
 
-test("an internal session → redirects to /demands", async () => {
+test("an internal session → redirects to /overview", async () => {
   getCurrentActor.mockResolvedValue({
     id: "u1",
     kind: "INTERNAL",
@@ -37,7 +37,7 @@ test("an internal session → redirects to /demands", async () => {
     clientId: null,
   });
   await expect(GuestPortalLayout({ children: null })).rejects.toThrow(
-    "redirect:/demands",
+    "redirect:/overview",
   );
 });
 

@@ -28,7 +28,7 @@ export default async function NotificationsPage() {
   const me = await whoami();
   if (!me) redirect("/login");
 
-  const home = actor.kind === "GUEST" ? "/portal" : "/demands";
+  const home = actor.kind === "GUEST" ? "/portal" : "/overview";
 
   return (
     <div className={styles.shell}>

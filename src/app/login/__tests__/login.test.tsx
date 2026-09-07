@@ -18,7 +18,7 @@ test("submits credentials and routes to `next` on 200", async () => {
     .spyOn(globalThis, "fetch")
     .mockResolvedValue(new Response(null, { status: 200 }));
 
-  // `next` is deliberately not the "/demands" fallback, so this also proves the
+  // `next` is deliberately not the "/overview" fallback, so this also proves the
   // prop is threaded through rather than ignored.
   render(<LoginForm next="/incidents" />);
   await userEvent.type(screen.getByLabelText(/email/i), "ceo@keel.local");

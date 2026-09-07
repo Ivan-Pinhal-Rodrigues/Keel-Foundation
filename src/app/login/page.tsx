@@ -15,7 +15,7 @@ export const metadata: Metadata = {
  * form is never shown to someone who is signed in.
  *
  * `next` is where the form sends the user after a successful login; anything
- * that does not resolve to a same-origin path is dropped for `/demands`
+ * that does not resolve to a same-origin path is dropped for `/overview`
  * (`sanitize-next.ts`), so a crafted `?next=` cannot turn this into an open
  * redirect.
  */
@@ -26,8 +26,7 @@ export default async function LoginPage({
 }) {
   const actor = await getCurrentActor();
   if (actor) {
-    // TODO(plan-06): internal home becomes /overview once the dashboard ships.
-    redirect(actor.kind === "INTERNAL" ? "/demands" : "/portal");
+    redirect(actor.kind === "INTERNAL" ? "/overview" : "/portal");
   }
 
   const { next: raw } = await searchParams;

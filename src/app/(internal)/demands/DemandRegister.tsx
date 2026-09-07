@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { DataTable, type Column } from "@/components/DataTable";
 import { Pill, type PillTone } from "@/components/Pill";
 import { DemandDrawer, type DemandViewer } from "./DemandDrawer";
@@ -110,12 +110,13 @@ export function DemandRegister({
   viewer: DemandViewer;
 }) {
   const router = useRouter();
+  const openParam = useSearchParams().get("open");
   const [status, setStatus] = useState<string | undefined>(
     initialFilters.status,
   );
   const [raisedByClient, setRaisedByClient] = useState(false);
   const [sort, setSort] = useState<SortKey>("newest");
-  const [openId, setOpenId] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<string | null>(openParam);
 
   function pushQuery(nextStatus: string | undefined) {
     const params = new URLSearchParams();
