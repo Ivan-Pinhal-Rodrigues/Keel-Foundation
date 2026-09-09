@@ -17,5 +17,33 @@ services:
   mailpit:
     image: axllent/mailpit:latest
     ports: ["1025:1025", "8025:8025"]
+  migrate:
+    build:
+      context: .
+      target: build
+    environment:
+      MIGRATE_DATABASE_URL: "postgresql://keel_migrate:keel_migrate@db:5432/keel?schema=public"
+    entrypoint: ["sh", "/app/docker/migrate-entrypoint.sh"]
+    depends_on:
+      db:
+        condition: service_healthy
+  app:
+    build:
+      context: .
+      target: runner
+    ports: ["3000:3000"]
+    environment:
+      DATABASE_URL: "postgresql://keel_app:keel_app@db:5432/keel?schema=public"
+      MIGRATE_DATABASE_URL: "postgresql://keel_migrate:keel_migrate@db:5432/keel?schema=public"
+      SMTP_URL: "smtp://mailpit:1025"
+      APP_URL: "http://localhost:3000"
+      NOTIFY_POLL_MS: "5000"
+      NOTIFY_BATCH: "20"
+      LOG_LEVEL: "debug"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      mailpit:
+        condition: service_started
 volumes:
   keel-db:
