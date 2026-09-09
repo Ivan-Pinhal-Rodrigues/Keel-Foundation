@@ -1,6 +1,11 @@
 import { expect, test } from "vitest";
 import { withTestDb } from "@/test/db";
-import { normalizeRoute, outboxGauges } from "@/server/metrics/registry";
+import {
+  httpRequestsTotal,
+  normalizeRoute,
+  outboxGauges,
+  registry,
+} from "@/server/metrics/registry";
 
 test("normalizeRoute: collapses a cuid-shaped id segment to :id", () => {
   expect(normalizeRoute("/api/demands/cm3x9k2q10000abcdefghijk")).toBe(
@@ -26,8 +31,35 @@ test("normalizeRoute: a nested static path keeps every static segment and only c
 });
 
 /**
- * Integration test — seeds `EmailOutbox` rows of three statuses against the
- * compose DB and asserts `outboxGauges` counts only PENDING and FAILED.
+ * Pure in-memory `prom-client` assertion — no DB, no `withTestDb()`. Resets
+ * the registry first so this test's `.inc()` isn't riding on a count left
+ * behind by another test/module in the same worker.
+ */
+test("httpRequestsTotal: inc({method,route,status}) records one observation with those labels", async () => {
+  registry.resetMetrics();
+
+  httpRequestsTotal.inc({
+    method: "GET",
+    route: "/api/demands/:id",
+    status: "200",
+  });
+
+  const metric = await httpRequestsTotal.get();
+
+  expect(metric.values).toEqual([
+    {
+      value: 1,
+      labels: { method: "GET", route: "/api/demands/:id", status: "200" },
+    },
+  ]);
+});
+
+/**
+ * Integration test — seeds `EmailOutbox` rows of all four `OutboxStatus`
+ * values against the compose DB and asserts `outboxGauges` counts only
+ * PENDING and FAILED. The SENDING row is the one that actually matters here:
+ * there's no `sending` gauge, so this proves `outboxGauges` doesn't
+ * accidentally lump SENDING into the `pending` or `failed` counts.
  *
  * UNEXECUTED as of this task: Docker/WSL is down on this host, so the
  * compose DB is unreachable and `withTestDb()`'s `beforeAll` (which creates
@@ -68,6 +100,14 @@ test("outboxGauges: counts PENDING and FAILED rows, ignoring other statuses", as
       template: "test",
       payload: {},
       status: "SENT",
+    },
+  });
+  await db().emailOutbox.create({
+    data: {
+      toEmail: "sending@example.com",
+      template: "test",
+      payload: {},
+      status: "SENDING",
     },
   });
 
