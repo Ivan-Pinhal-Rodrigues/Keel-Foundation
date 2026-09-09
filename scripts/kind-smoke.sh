@@ -48,7 +48,7 @@ kubectl -n keel-smoke run keel-smoke-mailpit --image=axllent/mailpit:latest --po
 
 kubectl -n keel-smoke wait --for=condition=ready pod -l run=keel-smoke-db --timeout=60s
 kubectl -n keel-smoke cp docker/postgres-init.sql "$(kubectl -n keel-smoke get pod -l run=keel-smoke-db -o jsonpath='{.items[0].metadata.name}')":/tmp/init.sql
-kubectl -n keel-smoke exec "$(kubectl -n keel-smoke get pod -l run=keel-smoke-db -o jsonpath='{.items[0].metadata.name}')" -- psql -U postgres -d keel -f /tmp/init.sql
+kubectl -n keel-smoke exec "$(kubectl -n keel-smoke get pod -l run=keel-smoke-db -o jsonpath='{.items[0].metadata.name}')" -- psql -h 127.0.0.1 -U postgres -d keel -f /tmp/init.sql
 
 # image.tag and migrateImage.tag are two SEPARATE --set flags, deliberately —
 # the Deployment must run the `runner` image (keel:ci), the pre-install migrate
