@@ -1,0 +1,150 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+env:
+  NODE_VERSION: "22"
+
+jobs:
+  install:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+  lint:
+    needs: install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+
+  typecheck:
+    needs: install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+
+  # NOTE on the deviation from plan-05's literal Task 6 brief: the brief's own
+  # draft used GitHub Actions' native `services: postgres` block here (same
+  # shape as the `migrations` job below), plus a `psql -f docker/postgres-init.sql`
+  # step. That does not work for this job specifically, because `pnpm test`
+  # (vitest.config.ts's `test` script) chains into `node scripts/check-migrations.mjs`,
+  # which — by design, see that script's own header comment — reaches Postgres
+  # via `docker compose exec -T db psql`, not a direct TCP connection. A native
+  # `services:` container has no docker-compose project for `exec` to find.
+  # check-migrations.mjs is explicitly out of scope to modify (task-6-report.md).
+  # Bringing up `docker compose up -d db` instead of the native service gives
+  # `docker compose exec -T db psql` something to find, and — as a bonus —
+  # docker/postgres-init.sql (already bind-mounted at
+  # /docker-entrypoint-initdb.d/00-init.sql by docker-compose.yml) creates the
+  # keel_app/keel_migrate roles automatically on the container's first boot, so
+  # the brief's separate "init roles" step is no longer needed here.
+  test:
+    needs: install
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: "postgresql://keel_app:keel_app@localhost:5432/keel?schema=public"
+      MIGRATE_DATABASE_URL: "postgresql://keel_migrate:keel_migrate@localhost:5432/keel?schema=public"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: bring up postgres (docker compose — check-migrations.mjs needs `docker compose exec`)
+        run: docker compose up -d db --wait
+      - run: pnpm exec prisma migrate deploy
+      # Coverage: `pnpm test -- --coverage` (the brief's literal step) does not
+      # do what it looks like it does — pnpm/npm append `-- <extra args>` to the
+      # END of the whole `test` script string ("vitest run && node
+      # scripts/check-migrations.mjs"), so `--coverage` would land on
+      # check-migrations.mjs's argv, never reach vitest. Calling vitest
+      # directly is the only way `--coverage` actually takes effect.
+      - run: pnpm exec vitest run --coverage
+      # No separate "coverage threshold" step / scripts/check-coverage.mjs:
+      # vitest.config.ts's new `coverage.thresholds` block (per-glob, added for
+      # this task) already sets process.exitCode = 1 itself when a mandated
+      # path falls short — confirmed by reading @vitest/coverage-v8's
+      # checkThresholds() in node_modules directly (v8 provider, v3.2.7). A
+      # separate script re-reading coverage-summary.json to re-derive the same
+      # pass/fail verdict would be dead weight. See task-6-report.md.
+      - run: node scripts/check-migrations.mjs
+
+  migrations:
+    needs: install
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: keel_scratch
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d keel_scratch"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      # schema.prisma's datasource block has both `url = env("DATABASE_URL")`
+      # and `directUrl = env("MIGRATE_DATABASE_URL")`. `prisma migrate
+      # deploy`/`resolve` connect via directUrl, but the CLI still fully
+      # validates the schema first and hard-fails at schema-load (P1012,
+      # "Environment variable not found: DATABASE_URL") if `url`'s variable
+      # is unset — confirmed locally by unsetting it and running `prisma
+      # migrate status` with no DATABASE_URL in scope. DATABASE_URL is never
+      # actually connected-to by anything this job runs; it only needs to
+      # resolve to something syntactically valid.
+      DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/keel_scratch?schema=public"
+      MIGRATE_DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/keel_scratch?schema=public"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Several migrations GRANT/REVOKE onto the keel_app/keel_migrate role
+      # names by literal name (e.g. 20260901200800_audit_grants). This job's
+      # postgres is a bare `services:` container (POSTGRES_USER: postgres
+      # only, no docker/postgres-init.sql — that file is hardcoded to the
+      # "keel" database name, not "keel_scratch"), so those two roles do not
+      # exist yet. Forward `prisma migrate deploy` would fail at that
+      # migration with "role keel_app does not exist" without this step. The
+      # roles only need to exist — every migration still runs as the
+      # postgres superuser (MIGRATE_DATABASE_URL above), which can GRANT to a
+      # role it does not own.
+      - name: create keel_app / keel_migrate roles on the scratch db
+        run: |
+          PGPASSWORD=postgres psql -h localhost -U postgres -d keel_scratch -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE keel_app WITH LOGIN PASSWORD 'keel_app';
+          CREATE ROLE keel_migrate WITH LOGIN PASSWORD 'keel_migrate';
+          SQL
+      - name: up-down-up every migration
+        run: node scripts/migration-updown-check.mjs
