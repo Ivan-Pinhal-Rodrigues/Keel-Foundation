@@ -30,6 +30,20 @@ test("normalizeRoute: a nested static path keeps every static segment and only c
   );
 });
 
+test("normalizeRoute: a real multi-segment route (id followed by more static segments) collapses only the id", () => {
+  expect(
+    normalizeRoute("/api/changes/cm3x9k2q10000abcdefghijk/approve/technical"),
+  ).toBe("/api/changes/:id/approve/technical");
+});
+
+test("normalizeRoute: a long token that isn't cuid/uuid-shaped is left alone", () => {
+  // Under the 20-char cuid floor and not a UUID — a short static segment
+  // must never be swept up by the dynamic-segment collapse.
+  expect(normalizeRoute("/api/guest-invites/abc123/redeem")).toBe(
+    "/api/guest-invites/abc123/redeem",
+  );
+});
+
 /**
  * Pure in-memory `prom-client` assertion — no DB, no `withTestDb()`. Resets
  * the registry first so this test's `.inc()` isn't riding on a count left

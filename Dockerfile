@@ -27,6 +27,12 @@ RUN pnpm build
 FROM node:22-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
+# Docker auto-sets HOSTNAME to the container id; Next's standalone server.js
+# binds to whatever HOSTNAME resolves to instead of defaulting to 0.0.0.0,
+# so without this it only listens on the container's own IP — reachable via
+# Docker's port mapping from outside, but ECONNREFUSED on 127.0.0.1 from
+# inside, which is exactly what the HEALTHCHECK below hits.
+ENV HOSTNAME="0.0.0.0"
 # Prisma's query engine dynamically links OpenSSL; node:22-slim's Debian base
 # doesn't ship it, so Prisma silently guesses "openssl-1.1.x" at runtime
 # without this — works today by luck, breaks on a base-image bump.
