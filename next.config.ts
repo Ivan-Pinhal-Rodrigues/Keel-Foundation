@@ -6,6 +6,7 @@ const nextConfig: NextConfig = {
   // workspace root, which both prints a warning and makes the build-trace step
   // non-deterministically ENOENT on `_not-found/page.js.nft.json`.
   outputFileTracingRoot: __dirname,
+  output: "standalone",
 };
 
 export default nextConfig;
