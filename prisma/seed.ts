@@ -1,10 +1,11 @@
+import { pathToFileURL } from "node:url";
 import type { $Enums, Prisma } from "@prisma/client";
 import { PrismaClient } from "@prisma/client";
 import { hashPassword } from "@/server/auth/password";
 
 const prisma = new PrismaClient();
 
-async function main() {
+export async function main() {
   const passwordHash = await hashPassword("Keel-admin-2026");
   await prisma.user.upsert({
     where: { email: "admin@keel.local" },
@@ -1048,4 +1049,16 @@ async function seedDemoNotifications(): Promise<void> {
   );
 }
 
-main().finally(() => prisma.$disconnect());
+// Only auto-run when this file is the process entry point (`pnpm seed` /
+// `tsx prisma/seed.ts`) -- not when a test dynamically imports it to call
+// `main()` directly against a disposable test database (see
+// `prisma/__tests__/seed-idempotent.test.ts`). ESM has no `require.main ===
+// module`; comparing the entry point's path to this module's own URL is the
+// equivalent check.
+const isEntryPoint =
+  process.argv[1] !== undefined &&
+  import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (isEntryPoint) {
+  main().finally(() => prisma.$disconnect());
+}
