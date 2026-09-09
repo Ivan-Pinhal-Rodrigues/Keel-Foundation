@@ -30,7 +30,9 @@ kubectl create namespace keel-smoke
 # exit status does not override the exit status `set -e` already captured
 # from the failing command (unless the handler calls `exit` itself, which
 # this one doesn't), so the script still reports the real failure to CI.
+PF_PID=""
 cleanup() {
+  [ -n "$PF_PID" ] && kill "$PF_PID" >/dev/null 2>&1 || true
   helm uninstall keel-smoke -n keel-smoke >/dev/null 2>&1 || true
   kubectl delete namespace keel-smoke --ignore-not-found --wait=false >/dev/null 2>&1 || true
 }
@@ -103,13 +105,31 @@ kubectl -n keel-smoke run curl-probe --image=curlimages/curl:latest --rm -i --re
 echo "kind smoke: readyz OK"
 
 # Full API smoke (spec §7 item 9): login -> create a demand -> read it back,
-# asserting each response status. Run as one shell script inside a single pod
-# (not three separate `kubectl run`s) because the session cookie from login and
-# the demand id from create must both carry into the next call — each
-# `kubectl run` is a fresh container, so state can't cross pod boundaries.
-# `--command` is required to override curlimages/curl's default entrypoint
-# (`curl`) with `sh -c`.
+# asserting each response status.
 #
+# Runs on the RUNNER itself via `kubectl port-forward`, not inside a
+# `kubectl run` pod curling the in-cluster Service DNS name — confirmed live
+# on a real CI run: the session cookie is Set-Cookie'd with Secure (src/app/
+# api/auth/login/route.ts: `secure: process.env.NODE_ENV === "production"`,
+# and the runner image bakes NODE_ENV=production), and curl (matching every
+# browser) only special-cases the literal hostname "localhost" as an
+# implicitly-secure context for a Secure cookie over plain HTTP — a Service
+# DNS name like `keel-smoke-keel` gets no such exception, so curl silently
+# never wrote the cookie to the jar in the first place, and the follow-up
+# POST /api/demands 401'd with no session. Reproduced and confirmed locally
+# before this fix. This is correct Secure-cookie behavior, not a bug to work
+# around in the app — a real deploy sits behind TLS-terminating ingress, so
+# the fix belongs in how the smoke test reaches the app, not in loosening
+# the cookie's Secure flag. Port-forwarding to genuine `localhost` gets the
+# same curl exception my local repro used successfully.
+kubectl -n keel-smoke port-forward svc/keel-smoke-keel 3000:3000 >/tmp/port-forward.log 2>&1 &
+PF_PID=$!
+for _ in $(seq 1 15); do
+  curl -sf http://localhost:3000/api/healthz >/dev/null 2>&1 && break
+  sleep 1
+done
+curl -sf http://localhost:3000/api/healthz >/dev/null
+
 # Request/response shapes read straight from the route handlers, not guessed:
 #   - POST /api/auth/login body {email,password} (src/lib/api/schemas/auth.ts
 #     loginBody) -> 200 {ok:true} + Set-Cookie session cookie on success
@@ -128,27 +148,24 @@ echo "kind smoke: readyz OK"
 #   - GET /api/demands/:id -> 200, and for an INTERNAL actor the body is the
 #     raw row unchanged (src/server/policy/serialize.ts serializePick: an
 #     internal reader "gets the row as-is"), so it still carries `id`.
-kubectl -n keel-smoke run api-smoke --image=curlimages/curl:latest --restart=Never --rm -i \
-  --command -- sh -c '
-set -eu
-BASE="http://keel-smoke-keel:3000"
-JAR=/tmp/cookies.txt
+BASE="http://localhost:3000"
+JAR="$(mktemp)"
 
 status=$(curl -sS -o /tmp/login.json -w "%{http_code}" -c "$JAR" \
   -H "Content-Type: application/json" \
-  -d "{\"email\":\"admin@keel.local\",\"password\":\"Keel-admin-2026\"}" \
+  -d '{"email":"admin@keel.local","password":"Keel-admin-2026"}' \
   "$BASE/api/auth/login")
 echo "login status=$status"; cat /tmp/login.json; echo
 [ "$status" = "200" ]
 
 status=$(curl -sS -o /tmp/create.json -w "%{http_code}" -b "$JAR" \
   -H "Content-Type: application/json" \
-  -d "{\"title\":\"kind smoke demand\",\"problem\":\"kind smoke test - verifying the API end to end\",\"source\":\"INTERNAL\"}" \
+  -d '{"title":"kind smoke demand","problem":"kind smoke test - verifying the API end to end","source":"INTERNAL"}' \
   "$BASE/api/demands")
 echo "create status=$status"; cat /tmp/create.json; echo
 [ "$status" = "201" ]
 
-id=$(sed -n "s/.*\"id\":\"\([^\"]*\)\".*/\1/p" /tmp/create.json)
+id=$(sed -n 's/.*"id":"\([^"]*\)".*/\1/p' /tmp/create.json)
 [ -n "$id" ]
 echo "created demand id=$id"
 
@@ -162,7 +179,9 @@ case "$(cat /tmp/read.json)" in
 esac
 
 echo "kind smoke: login -> create demand -> read back OK"
-'
+
+kill "$PF_PID" >/dev/null 2>&1 || true
+PF_PID=""
 
 # No explicit cleanup here — the `trap cleanup EXIT` above handles it on
 # every exit path, including this normal-completion one.
