@@ -103,9 +103,7 @@ test("behind a reverse proxy, the login redirect uses the public host/proto, not
   const res = middleware(req);
   expect(res.status).toBe(307);
   const location = res.headers.get("location") ?? "";
-  expect(location).toBe(
-    "https://217.154.91.141:3009/login?next=%2Foverview",
-  );
+  expect(location).toBe("https://217.154.91.141:3009/login?next=%2Foverview");
 });
 
 test("with no forwarding headers, the redirect falls back to the request's own Host header", () => {
