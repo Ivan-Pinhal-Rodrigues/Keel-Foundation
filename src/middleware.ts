@@ -56,8 +56,24 @@ export function middleware(req: NextRequest): NextResponse {
   } else if (pathname.startsWith("/api/")) {
     res = NextResponse.json({ error: "unauthenticated" }, { status: 401 });
   } else {
+    // req.url reflects the app's own bind address, not what the client
+    // actually sees — behind a reverse proxy (nginx terminating TLS on a
+    // different public port than the app's internal bind) that produces a
+    // redirect the browser can never reach. Build the origin from the
+    // request's own headers instead: X-Forwarded-* when a proxy set them,
+    // falling back to the plain Host header for a direct connection.
+    const host =
+      req.headers.get("x-forwarded-host") ??
+      req.headers.get("host") ??
+      req.nextUrl.host;
+    const proto =
+      req.headers.get("x-forwarded-proto") ??
+      req.nextUrl.protocol.replace(":", "");
     res = NextResponse.redirect(
-      new URL(`/login?next=${encodeURIComponent(pathname)}`, req.url),
+      new URL(
+        `/login?next=${encodeURIComponent(pathname)}`,
+        `${proto}://${host}`,
+      ),
     );
   }
 

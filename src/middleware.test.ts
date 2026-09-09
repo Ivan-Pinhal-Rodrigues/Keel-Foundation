@@ -84,3 +84,35 @@ test("outside production /dev/* is public — next() with no auth redirect", () 
   expect(res.status).toBe(200);
   expect(res.headers.get("location")).toBeNull();
 });
+
+test("behind a reverse proxy, the login redirect uses the public host/proto, not the app's own internal bind address", () => {
+  // The app may be bound to an internal address the browser can never reach
+  // (e.g. 127.0.0.1:3010 behind nginx terminating TLS on a different public
+  // port) — req.url reflects that internal bind, not what the client sees.
+  // A real deploy hit exactly this: every redirect pointed at
+  // "https://localhost:3010/login" regardless of what Host header nginx
+  // forwarded, because the redirect was built from req.url instead of the
+  // request's own headers.
+  const req = new NextRequest("http://127.0.0.1:3010/overview", {
+    headers: {
+      host: "217.154.91.141:3009",
+      "x-forwarded-proto": "https",
+      "x-forwarded-host": "217.154.91.141:3009",
+    },
+  });
+  const res = middleware(req);
+  expect(res.status).toBe(307);
+  const location = res.headers.get("location") ?? "";
+  expect(location).toBe(
+    "https://217.154.91.141:3009/login?next=%2Foverview",
+  );
+});
+
+test("with no forwarding headers, the redirect falls back to the request's own Host header", () => {
+  const req = new NextRequest("http://127.0.0.1:3010/overview", {
+    headers: { host: "example.com" },
+  });
+  const res = middleware(req);
+  const location = res.headers.get("location") ?? "";
+  expect(location).toBe("http://example.com/login?next=%2Foverview");
+});
