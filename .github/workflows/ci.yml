@@ -228,7 +228,12 @@ jobs:
       - run: helm lint helm/keel -f helm/keel/values-prod.yaml
       - name: no secret literals
         run: |
-          ! helm template helm/keel -f helm/keel/values-staging.yaml | grep -iE "password|secret.*:.*['\"a-zA-Z0-9]{8,}" | grep -v "secretRef\|existingSecret"
+          # Character class widened from the original ['\"a-zA-Z0-9]{8,} to
+          # also catch base64/token-style punctuation (_ + / = -) that a
+          # generated secret value commonly contains — e.g. "my-generated-key"
+          # or a base64 token with trailing "=" padding, neither of which the
+          # original class matched.
+          ! helm template helm/keel -f helm/keel/values-staging.yaml | grep -iE "password|secret.*:.*['\"_+/=a-zA-Z0-9-]{8,}" | grep -v "secretRef\|existingSecret"
 
   # `kind` needs TWO of the images the `build` job could hand it: the `runner`
   # image (`keel:ci`, already built+saved by `build`, downloaded here) for the

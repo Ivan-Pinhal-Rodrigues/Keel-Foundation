@@ -16,6 +16,26 @@ set -euo pipefail
 # before this script runs (see the `kind` job in .github/workflows/ci.yml).
 
 kubectl create namespace keel-smoke
+
+# Cleanup runs on EVERY exit (success or failure), not just success. Without
+# this, a mid-script failure (seed pod, api-smoke pod, a `kubectl wait`
+# timeout — all plausible on this script's first real CI run) hits `set -e`
+# and exits immediately, skipping whatever cleanup sat at the bottom of the
+# file. On GitHub Actions that's harmless (the whole runner VM is torn down
+# after the job), but on a local `kind` cluster it leaves a stuck
+# `keel-smoke` namespace with a running Postgres/mailpit/app behind. `helm
+# uninstall` has no `--ignore-not-found` flag (unlike `kubectl delete`), so
+# it's wrapped in `|| true` instead; every step here is `|| true` so a
+# cleanup failure can never mask the original failure. A trap handler's own
+# exit status does not override the exit status `set -e` already captured
+# from the failing command (unless the handler calls `exit` itself, which
+# this one doesn't), so the script still reports the real failure to CI.
+cleanup() {
+  helm uninstall keel-smoke -n keel-smoke >/dev/null 2>&1 || true
+  kubectl delete namespace keel-smoke --ignore-not-found --wait=false >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+
 kubectl -n keel-smoke create secret generic keel-secrets \
   --from-literal=DATABASE_URL="postgresql://keel_app:keel_app@keel-smoke-db:5432/keel?schema=public" \
   --from-literal=MIGRATE_DATABASE_URL="postgresql://keel_migrate:keel_migrate@keel-smoke-db:5432/keel?schema=public" \
@@ -130,5 +150,5 @@ esac
 echo "kind smoke: login -> create demand -> read back OK"
 '
 
-helm uninstall keel-smoke -n keel-smoke
-kubectl delete namespace keel-smoke
+# No explicit cleanup here — the `trap cleanup EXIT` above handles it on
+# every exit path, including this normal-completion one.
