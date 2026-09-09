@@ -58,6 +58,32 @@ kubectl create secret generic keel-secrets \
 | `image.tag`        | `local`        | —       | —    | Container image tag                                                               |
 | `image.pullPolicy` | `IfNotPresent` | —       | —    | Pod image pull policy                                                             |
 
+### `migrateImage`
+
+| Key                       | Default | staging | prod | Description                                    |
+| ------------------------- | ------- | ------- | ---- | ---------------------------------------------- |
+| `migrateImage.repository` | `keel`  | —       | —    | Container image repository for the migrate Job |
+| `migrateImage.tag`        | `local` | —       | —    | Container image tag for the migrate Job        |
+
+`migrateImage` is deliberately separate from `image`. The migrate `Job` runs
+`docker/migrate-entrypoint.sh` and needs the `prisma` CLI, so it must point
+at an image built from the Dockerfile's `build` stage (the full toolchain),
+**never** the `runner` stage that `image` points at — `runner` deliberately
+has neither the `prisma` CLI nor `docker/migrate-entrypoint.sh` copied in.
+`values.yaml` defaults `migrateImage` to the same `repository`/`tag` as
+`image` purely so the chart installs out-of-the-box; a real deploy must
+override it independently, e.g.:
+
+```bash
+helm upgrade --install keel helm/keel -f helm/keel/values-prod.yaml \
+  --set image.tag=<runner-tag> \
+  --set migrateImage.tag=<build-stage-tag>
+```
+
+Neither `values-staging.yaml` nor `values-prod.yaml` override the `image`
+section — CI/deploy tooling is expected to pass both tags via `--set` at
+install time, as above.
+
 ### `config` (rendered into the `-config` ConfigMap and injected via `envFrom`)
 
 | Key                   | Default                 | staging | prod               | Description                                                               |
@@ -122,8 +148,8 @@ the submitted email only (spec 08 §4).
 - `ConfigMap` — non-secret app config (`APP_URL`, `NOTIFY_POLL_MS`,
   `NOTIFY_BATCH`, `LOG_LEVEL`).
 - `ServiceAccount` — only when `serviceAccount.create`.
-- `Job` (`helm.sh/hook: pre-install,pre-upgrade`) — runs
-  `docker/migrate-entrypoint.sh` against `MIGRATE_DATABASE_URL` before each
-  install/upgrade completes, and is deleted/recreated per the
+- `Job` (`helm.sh/hook: pre-install,pre-upgrade`) — runs the `migrateImage`
+  image's `docker/migrate-entrypoint.sh` against `MIGRATE_DATABASE_URL`
+  before each install/upgrade completes, and is deleted/recreated per the
   `before-hook-creation,hook-succeeded` delete policy.
 - `HorizontalPodAutoscaler` — only when `autoscaling.enabled`.

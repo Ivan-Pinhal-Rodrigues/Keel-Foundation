@@ -15,7 +15,7 @@ spec:
       restartPolicy: Never
       containers:
         - name: migrate
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          image: "{{ .Values.migrateImage.repository }}:{{ .Values.migrateImage.tag }}"
           command: ["sh", "/app/docker/migrate-entrypoint.sh"]
           envFrom:
             - secretRef:

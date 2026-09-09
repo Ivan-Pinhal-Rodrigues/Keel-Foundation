@@ -5,6 +5,16 @@ image:
   tag: local
   pullPolicy: IfNotPresent
 
+# Image used by the pre-install/pre-upgrade migrate Job. Must point at an
+# image built from the Dockerfile's `build` stage (full toolchain — prisma
+# CLI, docker/migrate-entrypoint.sh present), never the `runner` stage used
+# by `image` above, which deliberately has neither. Defaults to the same
+# image as `image` so the chart still installs out-of-the-box; override
+# independently at install time (see README).
+migrateImage:
+  repository: keel
+  tag: local
+
 existingSecret: keel-secrets
 
 config:
