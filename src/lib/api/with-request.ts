@@ -6,6 +6,7 @@ import {
   touchSession,
 } from "@/server/auth/session";
 import { runWithContext } from "@/server/context";
+import { httpRequestsTotal, normalizeRoute } from "@/server/metrics/registry";
 import type { Actor } from "@/server/policy/actor";
 
 /**
@@ -39,6 +40,7 @@ export function withRequest(
 ): (req: Request) => Promise<Response> {
   return async (req: Request): Promise<Response> => {
     const requestId = req.headers.get("x-request-id") ?? crypto.randomUUID();
+    const route = normalizeRoute(new URL(req.url).pathname);
 
     try {
       let actor: Actor | null = null;
@@ -57,12 +59,24 @@ export function withRequest(
       }
 
       const ctx: RequestContext = { requestId, actor };
-      return await runWithContext(
+      const response = await runWithContext(
         { requestId, actorId: actor?.id ?? null, actor },
         async () => handler(req, ctx),
       );
+      httpRequestsTotal.inc({
+        method: req.method,
+        route,
+        status: String(response.status),
+      });
+      return response;
     } catch (e) {
-      return mapError(e);
+      const response = mapError(e);
+      httpRequestsTotal.inc({
+        method: req.method,
+        route,
+        status: String(response.status),
+      });
+      return response;
     }
   };
 }

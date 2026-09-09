@@ -5,6 +5,7 @@ import { loginBody } from "@/lib/api/schemas/auth";
 import { login } from "@/server/auth/login";
 import { SESSION_COOKIE } from "@/server/auth/session";
 import { runWithContext } from "@/server/context";
+import { authLoginsTotal } from "@/server/metrics/registry";
 
 /**
  * `POST /api/auth/login` — `{ email, password }` → 200 + session cookie, or a
@@ -68,6 +69,7 @@ export async function POST(req: Request): Promise<Response> {
         // One response for wrong password / unknown email / deactivated
         // account — and `verifyCredentials` makes them cost the same, so the
         // timing does not distinguish them either.
+        authLoginsTotal.inc({ result: "failure" });
         return NextResponse.json(
           { error: "invalid_credentials" },
           { status: 401 },
@@ -82,6 +84,7 @@ export async function POST(req: Request): Promise<Response> {
         expires: result.expires,
         path: "/",
       });
+      authLoginsTotal.inc({ result: "success" });
       return res;
     },
   );

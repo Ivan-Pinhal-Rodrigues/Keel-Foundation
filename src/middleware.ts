@@ -18,6 +18,7 @@ import { SESSION_COOKIE } from "@/lib/http/cookies";
 const PUBLIC = [
   /^\/api\/healthz$/,
   /^\/api\/readyz$/,
+  /^\/api\/metrics$/,
   /^\/api\/auth\/login$/,
   /^\/api\/guest-invites\/[^/]+\/redeem$/,
   /^\/login$/,

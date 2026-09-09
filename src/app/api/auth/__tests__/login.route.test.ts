@@ -4,7 +4,14 @@ import { POST } from "@/app/api/auth/login/route";
 import { hashPassword } from "@/server/auth/password";
 import { getSessionAndUser } from "@/server/auth/session";
 import { prisma as db } from "@/server/db/client";
+import { authLoginsTotal } from "@/server/metrics/registry";
 import { createTestDb } from "@/test/db";
+
+/** The current value of `authLoginsTotal{result}` — 0 if never incremented. */
+async function loginCounter(result: "success" | "failure"): Promise<number> {
+  const metric = await authLoginsTotal.get();
+  return metric.values.find((v) => v.labels.result === result)?.value ?? 0;
+}
 
 /**
  * Testability seam. (New route tests should use `withRouteTestDb()` from
@@ -80,12 +87,15 @@ const login = (body: unknown, ip: string) =>
     }),
   );
 
-test("valid credentials → 200, a session cookie, one Session row, one auth.login event", async () => {
+test("valid credentials → 200, a session cookie, one Session row, one auth.login event, keel_auth_logins_total{result=success} +1", async () => {
+  const before = await loginCounter("success");
+
   const res = await login(
     { email: "cto@keel.local", password: "secret12" },
     "203.0.113.1",
   );
   expect(res.status).toBe(200);
+  expect(await loginCounter("success")).toBe(before + 1);
 
   const setCookie = res.headers.get("set-cookie");
   expect(setCookie).toMatch(/authjs\.session-token=/);
@@ -117,8 +127,10 @@ test("valid credentials → 200, a session cookie, one Session row, one auth.log
   expect(events[0]?.requestId).toBeTruthy();
 });
 
-test("bad credentials → 401, no cookie, no session, one auth.login_failed event", async () => {
+test("bad credentials → 401, no cookie, no session, one auth.login_failed event, keel_auth_logins_total{result=failure} +1", async () => {
   const sessionsBefore = await db.session.count();
+  const before = await loginCounter("failure");
+
   const res = await login(
     { email: "cto@keel.local", password: "nope" },
     "203.0.113.2",
@@ -126,6 +138,7 @@ test("bad credentials → 401, no cookie, no session, one auth.login_failed even
   expect(res.status).toBe(401);
   expect(res.headers.get("set-cookie")).toBeNull();
   expect(await db.session.count()).toBe(sessionsBefore);
+  expect(await loginCounter("failure")).toBe(before + 1);
 
   const events = await db.auditEvent.findMany({
     where: { action: "auth.login_failed", subjectId: "cto@keel.local" },
