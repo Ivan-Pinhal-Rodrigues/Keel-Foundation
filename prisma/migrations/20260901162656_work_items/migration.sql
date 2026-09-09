@@ -10,6 +10,8 @@
 --              "Incident", "WorthAssessment", "Demand" CASCADE;
 -- CASCADE also removes every foreign key and index created below. No
 -- data-preserving step is needed — every object here is new.
+--
+-- Down: DROP TABLE "ChangeIncidentLink", "PostImplementationReview", "Change", "Incident", "WorthAssessment", "Demand" CASCADE;
 
 -- CreateTable
 CREATE TABLE "Demand" (

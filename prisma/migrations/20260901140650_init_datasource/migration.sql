@@ -1,1 +1,2 @@
+-- Down: SELECT 1; -- empty migration, nothing to reverse
 -- This is an empty migration.

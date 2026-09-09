@@ -85,6 +85,28 @@ function migrateDatabaseUrl() {
 
 const migrateUrl = migrateDatabaseUrl();
 
+// `psql -d <url>` parses the URL with libpq's own connection-URI rules, which
+// do NOT recognize Prisma's `?schema=` query parameter — Prisma translates
+// `schema` into a `search_path` setting itself, internally, but psql has no
+// such translation and hard-fails ("invalid URI query parameter: \"schema\"")
+// if the raw MIGRATE_DATABASE_URL is passed straight through. This job (see
+// .github/workflows/ci.yml's `migrations` job env:) always sets
+// MIGRATE_DATABASE_URL to `...keel_scratch?schema=public`, and Postgres'
+// default search_path (`"$user", public`) already resolves unqualified names
+// to the `public` schema for every role this script connects as — so the fix
+// is simply to strip the query string before handing the URL to psql, not to
+// replicate Prisma's schema translation. (The `current_schema()` dynamic
+// wrapper used inside the migrations themselves is a separate, unrelated
+// mechanism for the integration-test harness, which runs against
+// `?schema=test_<hex>` scratch schemas — this script only ever targets this
+// job's fixed `public`-schema database, never that harness.)
+function psqlConnectionString(url) {
+  const queryIndex = url.indexOf("?");
+  return queryIndex === -1 ? url : url.slice(0, queryIndex);
+}
+
+const psqlUrl = psqlConnectionString(migrateUrl);
+
 const names = readdirSync(MIGRATIONS_DIR, { withFileTypes: true })
   .filter((entry) => entry.isDirectory())
   .map((entry) => entry.name)
@@ -172,7 +194,7 @@ for (const name of names) {
   ].join("\n");
   run(
     "psql",
-    ["-d", migrateUrl, "-v", "ON_ERROR_STOP=1", "-c", transactionalSql],
+    ["-d", psqlUrl, "-v", "ON_ERROR_STOP=1", "-c", transactionalSql],
     `execute -- Down: SQL + delete _prisma_migrations row (${downSql})`,
     name,
   );

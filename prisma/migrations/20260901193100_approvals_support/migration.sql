@@ -15,6 +15,8 @@
 --              "Notification", "AuditEvent", "Comment", "EmailOutbox" CASCADE;
 -- CASCADE also removes every foreign key and index created below. No
 -- data-preserving step is needed — every object here is new.
+--
+-- Down: DROP TABLE "ApprovalDecision", "ApprovalStep", "ApprovalRequest", "Notification", "AuditEvent", "Comment", "EmailOutbox" CASCADE;
 
 -- CreateTable
 CREATE TABLE "ApprovalRequest" (

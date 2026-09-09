@@ -8,6 +8,8 @@
 -- DecisionKind, NotificationKind, OutboxStatus). `DROP TABLE ... CASCADE` also
 -- removes the foreign keys and indexes added below. No data-preserving step is
 -- needed — every object here is new.
+--
+-- Down: DROP TABLE "Counter", "GuestInvite", "VerificationToken", "Account", "Session", "User", "Client" CASCADE; DROP TYPE "UserKind", "Hat", "DemandSource", "DemandStatus", "WorthDecision", "Effort", "Level", "Priority", "IncidentStatus", "ChangeType", "ChangeStatus", "ValueRealized", "LinkKind", "ApprovalStatus", "StepStatus", "DecisionKind", "NotificationKind", "OutboxStatus";
 
 -- CreateEnum
 CREATE TYPE "UserKind" AS ENUM ('INTERNAL', 'GUEST');
