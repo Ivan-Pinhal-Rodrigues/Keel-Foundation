@@ -47,3 +47,7 @@ yarn-error.log*
 *.tsbuildinfo
 # next-env.d.ts is committed (not ignored) so `pnpm typecheck` works on a fresh
 # checkout before any `next build` / `next dev` has regenerated it.
+
+# scripts/migration-updown-check.mjs's scratch dir — holds migration folders it
+# temporarily hides mid-run; a crashed run should never leave these staged.
+/prisma/migrations.hidden

@@ -209,6 +209,11 @@ function run(cmd, args, step, migrationName) {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
       env: process.env,
+      // Windows resolves "pnpm" through a .cmd shim on PATH; execFileSync
+      // without a shell can't find it (ENOENT) even though it runs fine
+      // unshelled on the Linux CI runner this script targets. A no-op on
+      // POSIX, load-bearing on Windows.
+      shell: process.platform === "win32",
     });
   } catch (err) {
     throw new MigrationCheckError(
