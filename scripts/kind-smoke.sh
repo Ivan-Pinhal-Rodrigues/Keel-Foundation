@@ -47,8 +47,22 @@ kubectl -n keel-smoke run keel-smoke-db --image=postgres:16 \
 kubectl -n keel-smoke run keel-smoke-mailpit --image=axllent/mailpit:latest --port=1025 --expose
 
 kubectl -n keel-smoke wait --for=condition=ready pod -l run=keel-smoke-db --timeout=60s
-kubectl -n keel-smoke cp docker/postgres-init.sql "$(kubectl -n keel-smoke get pod -l run=keel-smoke-db -o jsonpath='{.items[0].metadata.name}')":/tmp/init.sql
-kubectl -n keel-smoke exec "$(kubectl -n keel-smoke get pod -l run=keel-smoke-db -o jsonpath='{.items[0].metadata.name}')" -- psql -h 127.0.0.1 -U postgres -d keel -f /tmp/init.sql
+DB_POD="$(kubectl -n keel-smoke get pod -l run=keel-smoke-db -o jsonpath='{.items[0].metadata.name}')"
+
+# Pod `Ready` only means the container process started — postgres's own
+# initdb + startup sequence still needs a few more seconds before it accepts
+# TCP connections (confirmed live: an immediate `psql` right after `Ready`
+# got "Connection refused" on a real CI run). `kubectl run` has no simple
+# flag for a real readinessProbe, so poll `pg_isready` instead of a fixed
+# sleep — proportionate to how long postgres actually takes to come up.
+for _ in $(seq 1 30); do
+  kubectl -n keel-smoke exec "$DB_POD" -- pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1 && break
+  sleep 2
+done
+kubectl -n keel-smoke exec "$DB_POD" -- pg_isready -h 127.0.0.1 -U postgres
+
+kubectl -n keel-smoke cp docker/postgres-init.sql "$DB_POD":/tmp/init.sql
+kubectl -n keel-smoke exec "$DB_POD" -- psql -h 127.0.0.1 -U postgres -d keel -f /tmp/init.sql
 
 # image.tag and migrateImage.tag are two SEPARATE --set flags, deliberately —
 # the Deployment must run the `runner` image (keel:ci), the pre-install migrate
