@@ -6,8 +6,10 @@ import { runInTransaction } from "@/server/db/tx";
 import { addComment, listComments } from "@/server/modules/comment";
 import {
   demandClientId,
+  demandSubmitterInfo,
   getDemandForActor,
 } from "@/server/modules/demand/service";
+import { isInternal } from "@/server/policy/actor";
 import { authorize } from "@/server/policy/authorize";
 
 /**
@@ -50,15 +52,36 @@ export async function POST(
     const { body, visibleToClient } = commentBody.parse(
       await req.json().catch(() => null),
     );
-    await getDemandForActor(actor, id);
+    const demand = await getDemandForActor(actor, id);
     const clientId = await demandClientId(id);
     authorize(actor, "comment.create", { type: "demand", id, clientId });
+
+    // Notify the submitter — the "other party" — when they didn't author this
+    // comment themselves. A GUEST submitter only learns of an internal-authored
+    // thread when it is visible to them (`visibleToClient`); an INTERNAL
+    // submitter is notified regardless, since that boundary only protects a
+    // guest from learning an internal-only thread exists.
+    const submitter = await demandSubmitterInfo(id);
+    const effectiveVisibleToClient = isInternal(actor)
+      ? (visibleToClient ?? false)
+      : true;
+    const notifyUserId =
+      submitter &&
+      submitter.id !== actor.id &&
+      (submitter.kind !== "GUEST" || effectiveVisibleToClient)
+        ? submitter.id
+        : undefined;
+
     await runInTransaction((tx) =>
       addComment(tx, {
         actor,
         subject: { type: "Demand", id, clientId },
         body,
         visibleToClient,
+        notifyUserId,
+        notifySummary: notifyUserId
+          ? `New message on your request "${demand.ref as string}"`
+          : undefined,
       }),
     );
     return NextResponse.json(

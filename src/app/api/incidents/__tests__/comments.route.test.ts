@@ -146,3 +146,106 @@ test("no session cookie → 401", async () => {
   const res = await GET(new Request(url), ctx());
   expect(res.status).toBe(401);
 });
+
+test("an internal author's visible comment notifies the guest reporter with a COMMENTED notification carrying the ref, not a raw id", async () => {
+  const client = await db.client.create({
+    data: { name: "Notify Incident A", isActive: true },
+  });
+  const guestUser = await db.user.create({
+    data: {
+      email: "notify-guest-inc-a@a.example",
+      passwordHash: "x",
+      displayName: "NG",
+      kind: "GUEST",
+      hats: [],
+      clientId: client.id,
+    },
+  });
+  const incident = await db.incident.create({
+    data: {
+      ref: "INC-NOTIFY-1",
+      title: "Notify me",
+      description: "d",
+      affectedService: "billing",
+      impact: "MEDIUM",
+      urgency: "MEDIUM",
+      priority: "P3",
+      status: "NEW",
+      reportedById: guestUser.id,
+      clientId: client.id,
+      dueAt: new Date(Date.now() + 72 * 3600 * 1000),
+      overdue: false,
+    },
+  });
+  const incidentUrl = `http://localhost:3000/api/incidents/${incident.id}/comments`;
+  const incidentCtx = () => ({ params: Promise.resolve({ id: incident.id }) });
+
+  const res = await POST(
+    new Request(incidentUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...internal.headers },
+      body: JSON.stringify({ body: "we are on it", visibleToClient: true }),
+    }),
+    incidentCtx(),
+  );
+  expect(res.status).toBe(201);
+
+  const notes = await db.notification.findMany({
+    where: { subjectId: incident.id, kind: "COMMENTED" },
+  });
+  expect(notes).toHaveLength(1);
+  expect(notes[0]!.userId).toBe(guestUser.id);
+  expect(notes[0]!.readAt).toBeNull();
+  const summary = (notes[0]!.payload as { summary: string }).summary;
+  expect(summary).not.toContain(incident.id);
+  expect(summary).toContain("INC-NOTIFY-1");
+});
+
+test("an internal-only comment (visibleToClient: false) does NOT notify the guest reporter", async () => {
+  const client = await db.client.create({
+    data: { name: "Notify Incident B", isActive: true },
+  });
+  const guestUser = await db.user.create({
+    data: {
+      email: "notify-guest-inc-b@a.example",
+      passwordHash: "x",
+      displayName: "NG2",
+      kind: "GUEST",
+      hats: [],
+      clientId: client.id,
+    },
+  });
+  const incident = await db.incident.create({
+    data: {
+      ref: "INC-NOTIFY-2",
+      title: "Stay quiet",
+      description: "d",
+      affectedService: "billing",
+      impact: "MEDIUM",
+      urgency: "MEDIUM",
+      priority: "P3",
+      status: "NEW",
+      reportedById: guestUser.id,
+      clientId: client.id,
+      dueAt: new Date(Date.now() + 72 * 3600 * 1000),
+      overdue: false,
+    },
+  });
+  const incidentUrl = `http://localhost:3000/api/incidents/${incident.id}/comments`;
+  const incidentCtx = () => ({ params: Promise.resolve({ id: incident.id }) });
+
+  const res = await POST(
+    new Request(incidentUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...internal.headers },
+      body: JSON.stringify({ body: "internal note", visibleToClient: false }),
+    }),
+    incidentCtx(),
+  );
+  expect(res.status).toBe(201);
+
+  const notes = await db.notification.findMany({
+    where: { subjectId: incident.id, kind: "COMMENTED" },
+  });
+  expect(notes).toHaveLength(0);
+});

@@ -141,3 +141,96 @@ test("no session cookie → 401", async () => {
   const res = await GET(new Request(url), ctx());
   expect(res.status).toBe(401);
 });
+
+test("an internal author's visible comment notifies the guest submitter with a COMMENTED notification carrying the ref, not a raw id", async () => {
+  const client = await db.client.create({
+    data: { name: "Notify Demand A", isActive: true },
+  });
+  const guestUser = await db.user.create({
+    data: {
+      email: "notify-guest-dem-a@a.example",
+      passwordHash: "x",
+      displayName: "NG",
+      kind: "GUEST",
+      hats: [],
+      clientId: client.id,
+    },
+  });
+  const demand = await db.demand.create({
+    data: {
+      ref: "DEM-NOTIFY-1",
+      title: "Notify me",
+      problem: "p",
+      source: "CLIENT",
+      status: "SUBMITTED",
+      submittedById: guestUser.id,
+      clientId: client.id,
+    },
+  });
+  const demandUrl = `http://localhost:3000/api/demands/${demand.id}/comments`;
+  const demandCtx = () => ({ params: Promise.resolve({ id: demand.id }) });
+
+  const res = await POST(
+    new Request(demandUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...internal.headers },
+      body: JSON.stringify({ body: "we are on it", visibleToClient: true }),
+    }),
+    demandCtx(),
+  );
+  expect(res.status).toBe(201);
+
+  const notes = await db.notification.findMany({
+    where: { subjectId: demand.id, kind: "COMMENTED" },
+  });
+  expect(notes).toHaveLength(1);
+  expect(notes[0]!.userId).toBe(guestUser.id);
+  expect(notes[0]!.readAt).toBeNull();
+  const summary = (notes[0]!.payload as { summary: string }).summary;
+  expect(summary).not.toContain(demand.id);
+  expect(summary).toContain("DEM-NOTIFY-1");
+});
+
+test("an internal-only comment (visibleToClient: false) does NOT notify the guest submitter", async () => {
+  const client = await db.client.create({
+    data: { name: "Notify Demand B", isActive: true },
+  });
+  const guestUser = await db.user.create({
+    data: {
+      email: "notify-guest-dem-b@a.example",
+      passwordHash: "x",
+      displayName: "NG2",
+      kind: "GUEST",
+      hats: [],
+      clientId: client.id,
+    },
+  });
+  const demand = await db.demand.create({
+    data: {
+      ref: "DEM-NOTIFY-2",
+      title: "Stay quiet",
+      problem: "p",
+      source: "CLIENT",
+      status: "SUBMITTED",
+      submittedById: guestUser.id,
+      clientId: client.id,
+    },
+  });
+  const demandUrl = `http://localhost:3000/api/demands/${demand.id}/comments`;
+  const demandCtx = () => ({ params: Promise.resolve({ id: demand.id }) });
+
+  const res = await POST(
+    new Request(demandUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...internal.headers },
+      body: JSON.stringify({ body: "internal note", visibleToClient: false }),
+    }),
+    demandCtx(),
+  );
+  expect(res.status).toBe(201);
+
+  const notes = await db.notification.findMany({
+    where: { subjectId: demand.id, kind: "COMMENTED" },
+  });
+  expect(notes).toHaveLength(0);
+});

@@ -6,8 +6,10 @@ import { runInTransaction } from "@/server/db/tx";
 import { addComment, listComments } from "@/server/modules/comment";
 import {
   incidentClientId,
+  incidentReporterInfo,
   getIncidentForActor,
 } from "@/server/modules/incident/service";
+import { isInternal } from "@/server/policy/actor";
 import { authorize } from "@/server/policy/authorize";
 
 /**
@@ -50,15 +52,36 @@ export async function POST(
     const { body, visibleToClient } = incidentCommentBody.parse(
       await req.json().catch(() => null),
     );
-    await getIncidentForActor(actor, id);
+    const incident = await getIncidentForActor(actor, id);
     const clientId = await incidentClientId(id);
     authorize(actor, "comment.create", { type: "incident", id, clientId });
+
+    // Notify the reporter — the "other party" — when they didn't author this
+    // comment themselves. A GUEST reporter only learns of an internal-authored
+    // thread when it is visible to them (`visibleToClient`); an INTERNAL
+    // reporter is notified regardless, since that boundary only protects a
+    // guest from learning an internal-only thread exists.
+    const reporter = await incidentReporterInfo(id);
+    const effectiveVisibleToClient = isInternal(actor)
+      ? (visibleToClient ?? false)
+      : true;
+    const notifyUserId =
+      reporter &&
+      reporter.id !== actor.id &&
+      (reporter.kind !== "GUEST" || effectiveVisibleToClient)
+        ? reporter.id
+        : undefined;
+
     await runInTransaction((tx) =>
       addComment(tx, {
         actor,
         subject: { type: "Incident", id, clientId },
         body,
         visibleToClient,
+        notifyUserId,
+        notifySummary: notifyUserId
+          ? `New message on ${incident.ref as string}`
+          : undefined,
       }),
     );
     return NextResponse.json(

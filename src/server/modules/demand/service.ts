@@ -55,7 +55,9 @@ export async function createDemand(
       ref,
       title: input.title,
       problem: input.problem,
-      source: input.source,
+      // spec 07 §4.4: a guest's `source` is always CLIENT server-side — the
+      // request body is trusted only for an internal actor.
+      source: isInternal(actor) ? input.source : "CLIENT",
       status: "SUBMITTED",
       submittedById: actor.id,
       clientId: isInternal(actor) ? null : actor.clientId,
@@ -68,7 +70,7 @@ export async function createDemand(
     action: "demand.create",
     subjectType: "Demand",
     subjectId: demand.id,
-    payload: { source: input.source, byGuest: !isInternal(actor) },
+    payload: { source: demand.source, byGuest: !isInternal(actor) },
   });
 
   if (!isInternal(actor)) {
@@ -199,6 +201,23 @@ export async function demandClientId(
     select: { clientId: true },
   });
   return row?.clientId ?? null;
+}
+
+/**
+ * The demand's submitter id + kind — a narrow read the comments route needs to
+ * decide whether (and who) to notify on a new comment, without reaching for
+ * `@/server/db/client` itself. Mirrors `demandClientId`.
+ */
+export async function demandSubmitterInfo(
+  id: string,
+  client: PrismaClient = prisma,
+): Promise<{ id: string; kind: $Enums.UserKind } | null> {
+  const row = await client.demand.findUnique({
+    where: { id },
+    select: { submittedById: true, submittedBy: { select: { kind: true } } },
+  });
+  if (!row) return null;
+  return { id: row.submittedById, kind: row.submittedBy.kind };
 }
 
 /**
@@ -412,9 +431,12 @@ async function loadDemandWithWorthOr404(tx: PrismaTransaction, id: string) {
 }
 
 /**
- * Notify the demand's submitter of a decision / rejection outcome: in-app
- * always, plus an email when the submitter is a guest (the guest-safe
- * `demand_decided` template, carrying the already-rendered plain-word status).
+ * Notify the demand's submitter of a decision / rejection outcome. A GUEST
+ * submitter's in-app summary (and email) use the guest-safe status phrase —
+ * the portal masks the PARK/REJECTED distinction from a guest everywhere
+ * (`guestStatusLabel`), so their bell must never speak the internal
+ * "approved / parked / declined" vocabulary. An INTERNAL submitter keeps the
+ * internal-vocabulary summary, in-app only (no email).
  */
 async function notifySubmitterOfOutcome(
   tx: PrismaTransaction,
@@ -422,7 +444,8 @@ async function notifySubmitterOfOutcome(
     demandId: string;
     submittedById: string;
     ref: string;
-    summary: string;
+    title: string;
+    internalSummary: string;
     guestStatus: string;
   },
 ): Promise<void> {
@@ -430,19 +453,21 @@ async function notifySubmitterOfOutcome(
     where: { id: args.submittedById },
     select: { kind: true },
   });
+  const isGuest = submitter?.kind === "GUEST";
   await emitNotification(tx, {
     recipients: { userIds: [args.submittedById] },
     kind: "STATUS_CHANGED",
     subjectType: "Demand",
     subjectId: args.demandId,
-    summary: args.summary,
-    email:
-      submitter?.kind === "GUEST"
-        ? {
-            template: "demand_decided",
-            payload: { ref: args.ref, status: args.guestStatus },
-          }
-        : undefined,
+    summary: isGuest
+      ? `Your request "${args.title}" is now: ${args.guestStatus}`
+      : args.internalSummary,
+    email: isGuest
+      ? {
+          template: "demand_decided",
+          payload: { ref: args.ref, status: args.guestStatus },
+        }
+      : undefined,
   });
 }
 
@@ -548,7 +573,8 @@ export async function decideDemand(
     demandId: id,
     submittedById: row.submittedById,
     ref: row.ref,
-    summary: `Your demand "${row.title}" was ${
+    title: row.title,
+    internalSummary: `Your demand "${row.title}" was ${
       input.decision === "PURSUE"
         ? "approved"
         : input.decision === "PARK"
@@ -601,7 +627,8 @@ export async function rejectDemand(
     demandId: id,
     submittedById: row.submittedById,
     ref: row.ref,
-    summary: `Your demand "${row.title}" was declined`,
+    title: row.title,
+    internalSummary: `Your demand "${row.title}" was declined`,
     guestStatus: guestStatusLabel("REJECTED", "DROP", input.reason),
   });
 }

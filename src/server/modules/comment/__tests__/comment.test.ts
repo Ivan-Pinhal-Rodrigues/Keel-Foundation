@@ -333,6 +333,48 @@ test("addComment emits one COMMENTED notification for notifyUserId, none without
   ).toBe(0);
 });
 
+test("addComment's COMMENTED summary uses notifySummary when passed, falls back to the generic (id-bearing) sentence otherwise", async () => {
+  const { actor } = await mkInternal();
+  const { user: recipient } = await mkInternal();
+
+  const withSummary = `inc-${uniq()}`;
+  await withCtx(() =>
+    db().$transaction((tx) =>
+      addComment(tx, {
+        actor,
+        subject: { type: "Incident", id: withSummary, clientId: null },
+        body: "ping",
+        notifyUserId: recipient.id,
+        notifySummary: `New message on INC-1234`,
+      }),
+    ),
+  );
+  const withSummaryNote = await db().notification.findFirstOrThrow({
+    where: { subjectId: withSummary },
+  });
+  expect((withSummaryNote.payload as { summary: string }).summary).toBe(
+    "New message on INC-1234",
+  );
+
+  const withoutSummary = `inc-${uniq()}`;
+  await withCtx(() =>
+    db().$transaction((tx) =>
+      addComment(tx, {
+        actor,
+        subject: { type: "Incident", id: withoutSummary, clientId: null },
+        body: "ping",
+        notifyUserId: recipient.id,
+      }),
+    ),
+  );
+  const withoutSummaryNote = await db().notification.findFirstOrThrow({
+    where: { subjectId: withoutSummary },
+  });
+  expect((withoutSummaryNote.payload as { summary: string }).summary).toBe(
+    `New comment on incident ${withoutSummary}`,
+  );
+});
+
 test("a rollback of the surrounding transaction persists no comment, audit, or notification", async () => {
   const { actor } = await mkInternal();
   const { user: recipient } = await mkInternal();

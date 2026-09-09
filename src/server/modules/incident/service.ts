@@ -282,6 +282,23 @@ export async function incidentClientId(
 }
 
 /**
+ * The incident's reporter id + kind — a narrow read the comments route needs to
+ * decide whether (and who) to notify on a new comment, without reaching for
+ * `@/server/db/client` itself. Mirrors `incidentClientId`.
+ */
+export async function incidentReporterInfo(
+  id: string,
+  client: PrismaClient = prisma,
+): Promise<{ id: string; kind: $Enums.UserKind } | null> {
+  const row = await client.incident.findUnique({
+    where: { id },
+    select: { reportedById: true, reportedBy: { select: { kind: true } } },
+  });
+  if (!row) return null;
+  return { id: row.reportedById, kind: row.reportedBy.kind };
+}
+
+/**
  * The categorise + assign writes (`plans/plan-02-incident.md` Task 5). Each takes
  * the caller's `tx` so the incident row, its `AuditEvent`, and any notification
  * or comment commit or roll back together. Gate before the load, uniformly with
@@ -441,9 +458,14 @@ type StatusChangeRow = {
 
 /**
  * Notify the reporter (always) and the assignee (when set, and neither the
- * reporter nor the acting user) that an incident's status moved. A guest
- * reporter also gets the guest-safe `incident_status` email carrying the
- * already-rendered plain-word status.
+ * reporter nor the acting user) that an incident's status moved.
+ *
+ * A GUEST reporter's in-app summary (and email) use the guest-safe status
+ * phrase — the portal's own vocabulary ("Investigating") differs from the
+ * internal one ("In progress"), so a guest's bell must never speak internal
+ * words. The assignee is always internal (`assignIncident` enforces it), so
+ * their in-app summary — and an INTERNAL reporter's — keeps the internal
+ * vocabulary.
  */
 async function notifyReporterAndAssignee(
   tx: PrismaTransaction,
@@ -455,9 +477,7 @@ async function notifyReporterAndAssignee(
   },
 ): Promise<void> {
   const { row } = args;
-  // The in-app summary reaches internal recipients too, so it uses the internal
-  // vocabulary; the guest-only `incident_status` email keeps the plain word.
-  const summary = `${row.ref} status updated: ${internalIncidentStatusLabel(
+  const internalSummary = `${row.ref} status updated: ${internalIncidentStatusLabel(
     args.to,
   )}`;
 
@@ -465,20 +485,22 @@ async function notifyReporterAndAssignee(
     where: { id: row.reportedById },
     select: { kind: true },
   });
+  const reporterIsGuest = reporter?.kind === "GUEST";
   await emitNotification(tx, {
     recipients: { userIds: [row.reportedById] },
     kind: "STATUS_CHANGED",
     subjectType: "Incident",
     subjectId: row.id,
-    summary,
+    summary: reporterIsGuest
+      ? `Your request "${row.title}" is now: ${args.guestStatus}`
+      : internalSummary,
     excludeActorId: args.actorId,
-    email:
-      reporter?.kind === "GUEST"
-        ? {
-            template: "incident_status",
-            payload: { ref: row.ref, status: args.guestStatus },
-          }
-        : undefined,
+    email: reporterIsGuest
+      ? {
+          template: "incident_status",
+          payload: { ref: row.ref, status: args.guestStatus },
+        }
+      : undefined,
   });
 
   if (
@@ -491,7 +513,7 @@ async function notifyReporterAndAssignee(
       kind: "STATUS_CHANGED",
       subjectType: "Incident",
       subjectId: row.id,
-      summary,
+      summary: internalSummary,
     });
   }
 }

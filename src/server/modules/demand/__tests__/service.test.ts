@@ -177,6 +177,31 @@ test("an internal user creating a demand: no client, source INTERNAL allowed, no
   expect(await db().notification.count({ where: { subjectId: id } })).toBe(0);
 });
 
+test("a guest's `source` is forced to CLIENT server-side regardless of what the request body sends", async () => {
+  const { client, guest } = await seedClientAndGuest();
+  const guestActor: Actor = {
+    id: guest.id,
+    kind: "GUEST",
+    hats: [],
+    clientId: client.id,
+  };
+
+  const { id } = await ctx(() =>
+    db().$transaction((tx) =>
+      createDemand(guestActor, tx, {
+        title: "spoofed source",
+        problem: "p",
+        // A guest client cannot actually send this per the portal form, but the
+        // server must not trust the body either way (spec 07 §4.4).
+        source: "TECH_DEBT",
+      }),
+    ),
+  );
+
+  const d = await db().demand.findUniqueOrThrow({ where: { id } });
+  expect(d.source).toBe("CLIENT");
+});
+
 // --- Task 3: state machine + triage & scoring -----------------------------
 
 const rand = () => Math.random().toString(16).slice(2);
@@ -598,6 +623,61 @@ test("park then re-decide: APPROVED(PARK) → decideDemand(PURSUE) → APPROVED(
       where: { subjectId: id, action: "demand.decided" },
     }),
   ).toHaveLength(1);
+});
+
+test("a guest submitter's decision notification uses the guest-safe status phrase in-app, not internal vocabulary", async () => {
+  const { id, submitterId } = await seedAssessedDemand();
+  const biz = (await seedInternal(["BUSINESS_APPROVER"])).actor;
+
+  await ctx(() =>
+    db().$transaction((tx) =>
+      decideDemand(biz, tx, id, { decision: "PARK", note: "not yet" }),
+    ),
+  );
+
+  const note = await db().notification.findFirstOrThrow({
+    where: { subjectId: id, userId: submitterId },
+  });
+  const summary = (note.payload as { summary: string }).summary;
+  expect(summary).toBe('Your request "T" is now: In review');
+  expect(summary).not.toContain("parked");
+});
+
+test("an internal submitter's decision notification keeps the internal-vocabulary summary in-app", async () => {
+  const submitter = await seedInternal(["DEVELOPER"]);
+  const { id } = await seedAssessedDemand({
+    internalSubmitterId: submitter.id,
+  });
+  const biz = (await seedInternal(["BUSINESS_APPROVER"])).actor;
+
+  await ctx(() =>
+    db().$transaction((tx) =>
+      decideDemand(biz, tx, id, { decision: "PARK", note: "not yet" }),
+    ),
+  );
+
+  const note = await db().notification.findFirstOrThrow({
+    where: { subjectId: id, userId: submitter.id },
+  });
+  const summary = (note.payload as { summary: string }).summary;
+  expect(summary).toBe('Your demand "T" was parked');
+});
+
+test("a guest submitter's rejection notification uses the guest-safe status phrase in-app", async () => {
+  const rejected = await seedAssessedDemand();
+  const biz = (await seedInternal(["BUSINESS_APPROVER"])).actor;
+
+  await ctx(() =>
+    db().$transaction((tx) =>
+      rejectDemand(biz, tx, rejected.id, { reason: "duplicate request" }),
+    ),
+  );
+
+  const note = await db().notification.findFirstOrThrow({
+    where: { subjectId: rejected.id, userId: rejected.submitterId },
+  });
+  const summary = (note.payload as { summary: string }).summary;
+  expect(summary).toBe('Your request "T" is now: Declined — duplicate request');
 });
 
 test("a guest cannot decide or reject", async () => {

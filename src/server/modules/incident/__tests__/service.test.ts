@@ -756,6 +756,76 @@ test("in-app status-change summary uses internal vocab for internal recipients; 
   expect((email?.payload as { status: string }).status).toBe("Investigating");
 });
 
+test("a guest reporter's status-change notification uses the guest-safe status phrase in-app, not internal vocabulary", async () => {
+  const dev = await seedInternal(["DEVELOPER"]);
+  const assignee = await seedInternal([]);
+  const { guest, guestActor } = await seedClientAndGuest();
+
+  const inc = await ctx(() =>
+    db().$transaction((tx) =>
+      createIncident(guestActor, tx, {
+        kind: "GUEST",
+        title: "cannot log in",
+        description: "d",
+        affectedService: "portal",
+        affectingLevel: "whole team",
+      }),
+    ),
+  );
+  await ctx(() =>
+    db().$transaction((tx) =>
+      assignIncident(dev.actor, tx, inc.id, { assigneeId: assignee.id }),
+    ),
+  );
+  await ctx(() =>
+    db().$transaction((tx) =>
+      transitionIncident(dev.actor, tx, inc.id, { to: "IN_PROGRESS" }),
+    ),
+  );
+
+  const reporterNote = await db().notification.findFirstOrThrow({
+    where: { subjectId: inc.id, kind: "STATUS_CHANGED", userId: guest.id },
+  });
+  const summary = (reporterNote.payload as { summary: string }).summary;
+  expect(summary).toBe('Your request "cannot log in" is now: Investigating');
+  expect(summary).not.toContain("In progress");
+});
+
+test("an internal reporter's status-change notification keeps the internal-vocabulary summary in-app", async () => {
+  const dev = await seedInternal(["DEVELOPER"]);
+  const reporter = await seedInternal([]);
+  const assignee = await seedInternal([]);
+
+  const inc = await ctx(() =>
+    db().$transaction((tx) =>
+      createIncident(reporter.actor, tx, {
+        kind: "INTERNAL",
+        title: "db down",
+        description: "d",
+        affectedService: "db",
+        impact: "HIGH",
+        urgency: "HIGH",
+      }),
+    ),
+  );
+  await ctx(() =>
+    db().$transaction((tx) =>
+      assignIncident(dev.actor, tx, inc.id, { assigneeId: assignee.id }),
+    ),
+  );
+  await ctx(() =>
+    db().$transaction((tx) =>
+      transitionIncident(dev.actor, tx, inc.id, { to: "IN_PROGRESS" }),
+    ),
+  );
+
+  const reporterNote = await db().notification.findFirstOrThrow({
+    where: { subjectId: inc.id, kind: "STATUS_CHANGED", userId: reporter.id },
+  });
+  const summary = (reporterNote.payload as { summary: string }).summary;
+  expect(summary).toBe(`${inc.ref} status updated: In progress`);
+});
+
 test("a guest cannot transition or reopen (ForbiddenError)", async () => {
   const dev = await seedInternal(["DEVELOPER"]);
   const { guestActor } = await seedClientAndGuest();

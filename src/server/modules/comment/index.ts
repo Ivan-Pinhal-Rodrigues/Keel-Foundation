@@ -57,6 +57,11 @@ export async function addComment(
      *  author's comment is always forced visibleToClient = true. */
     visibleToClient?: boolean;
     notifyUserId?: string;
+    /** The `COMMENTED` in-app summary when `notifyUserId` is set. Falls back
+     *  to a generic (id-bearing) sentence when omitted — kept only for the
+     *  module's own tests that don't pass one; a real call site should always
+     *  pass a ref/title-bearing summary instead of leaking a raw cuid. */
+    notifySummary?: string;
   },
 ): Promise<Comment> {
   const { actor, subject, body } = input;
@@ -101,7 +106,9 @@ export async function addComment(
       kind: "COMMENTED",
       subjectType: subject.type,
       subjectId: subject.id,
-      summary: `New comment on ${subject.type.toLowerCase()} ${subject.id}`,
+      summary:
+        input.notifySummary ??
+        `New comment on ${subject.type.toLowerCase()} ${subject.id}`,
     });
   }
 
