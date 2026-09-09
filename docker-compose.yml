@@ -22,6 +22,11 @@ services:
       context: .
       target: build
     environment:
+      # `prisma migrate deploy` only ever connects via directUrl
+      # (MIGRATE_DATABASE_URL below), but Prisma's schema-loading step
+      # validates that DATABASE_URL is present and well-formed regardless —
+      # P1012 otherwise, even though this container never queries through it.
+      DATABASE_URL: "postgresql://keel_app:keel_app@db:5432/keel?schema=public"
       MIGRATE_DATABASE_URL: "postgresql://keel_migrate:keel_migrate@db:5432/keel?schema=public"
     entrypoint: ["sh", "/app/docker/migrate-entrypoint.sh"]
     depends_on:
