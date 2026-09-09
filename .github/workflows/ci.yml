@@ -150,7 +150,7 @@ jobs:
         run: node scripts/migration-updown-check.mjs
 
   build:
-    needs: [lint, typecheck]
+    needs: [lint, typecheck, test, migrations]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
