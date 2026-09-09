@@ -79,3 +79,9 @@ Every push and pull request runs nine gates in `.github/workflows/ci.yml`:
 literals), and `kind` (a real `kind` cluster install + login/create/read
 smoke test). `build`, `e2e`, `helm` and `kind` depend on the earlier gates
 passing (`needs:`), so nothing merges to `master` while any gate is red.
+
+## License
+
+Proprietary — all rights reserved. See [`LICENSE`](LICENSE). No license,
+right, or interest in this software is granted by its visibility in this
+repository.

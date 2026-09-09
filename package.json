@@ -2,6 +2,8 @@
   "name": "keel",
   "version": "0.1.0",
   "private": true,
+  "license": "UNLICENSED",
+  "author": "Ivan Rodrigues",
   "packageManager": "pnpm@11.25.0",
   "prisma": {
     "seed": "tsx prisma/seed.ts"
