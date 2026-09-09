@@ -8,20 +8,36 @@
 -- integration-test harness runs with ?schema=test_<hex>. Hardcoding "public"
 -- would leave every test schema ungranted.
 --
--- Reversible. Down path (per schema): revoke every grant made above, in
--- reverse — schema USAGE, the ALL TABLES/ALL SEQUENCES grants, and both
--- ALTER DEFAULT PRIVILEGES entries. The final `REVOKE UPDATE, DELETE ON
--- "AuditEvent"` line above narrows a grant already made by the ALL TABLES
--- line two statements earlier, so reversing the ALL TABLES grant reverses it
--- too — no separate re-GRANT step is needed (REVOKE of a privilege keel_app
--- no longer holds is a Postgres no-op, not an error). Pre-migration, keel_app
--- holds none of this (this is the first migration to grant it anything at
--- the table/sequence/default-privilege level; see docker/postgres-init.sql
--- and the CI `migrations` job's role-creation step, neither of which grants
--- beyond schema CONNECT/USAGE, and the CI scratch DB doesn't even run
--- postgres-init.sql), so a full revoke is the correct — not merely
--- convenient — return to pre-migration state:
--- Down: DO $$ DECLARE s text := current_schema(); BEGIN EXECUTE format('REVOKE USAGE ON SCHEMA %I FROM keel_app', s); EXECUTE format('REVOKE SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA %I FROM keel_app', s); EXECUTE format('REVOKE USAGE, SELECT ON ALL SEQUENCES IN SCHEMA %I FROM keel_app', s); EXECUTE format('ALTER DEFAULT PRIVILEGES FOR ROLE keel_migrate IN SCHEMA %I REVOKE SELECT, INSERT, UPDATE, DELETE ON TABLES FROM keel_app', s); EXECUTE format('ALTER DEFAULT PRIVILEGES FOR ROLE keel_migrate IN SCHEMA %I REVOKE USAGE, SELECT ON SEQUENCES FROM keel_app', s); END $$;
+-- Reversible. Down path (per schema): revoke the ALL TABLES/ALL SEQUENCES
+-- grants and both ALTER DEFAULT PRIVILEGES entries. The final `REVOKE
+-- UPDATE, DELETE ON "AuditEvent"` line above narrows a grant already made by
+-- the ALL TABLES line two statements earlier, so reversing the ALL TABLES
+-- grant reverses it too — no separate re-GRANT step is needed (REVOKE of a
+-- privilege keel_app no longer holds is a Postgres no-op, not an error).
+-- Pre-migration, keel_app holds none of the table/sequence/default-privilege
+-- grants below (this is the first migration to grant it anything at that
+-- level; see docker/postgres-init.sql and the CI `migrations` job's
+-- role-creation step, neither of which grants beyond schema CONNECT/USAGE),
+-- so revoking those is the correct — not merely convenient — return to
+-- pre-migration state.
+--
+-- Schema USAGE is deliberately NOT revoked here, even though the up path
+-- above (redundantly) re-asserts `GRANT USAGE ON SCHEMA ... TO keel_app`.
+-- That grant is not this migration's to own: in every real (non-CI)
+-- environment, keel_app already holds schema USAGE from
+-- docker/postgres-init.sql (`GRANT USAGE ON SCHEMA public TO keel_app;`),
+-- which runs once, outside the migration history, before any migration ever
+-- applies. Postgres GRANT/REVOKE has no reference counting — REVOKE removes
+-- a privilege outright regardless of which statement last (re-)granted it —
+-- so a down path that revoked USAGE here would strip the privilege
+-- postgres-init.sql granted too, leaving keel_app locked out of the schema
+-- entirely after a production rollback of just this one migration. (The CI
+-- `migrations` job's scratch DB never runs postgres-init.sql, so there
+-- keel_app's schema USAGE comes only from this migration's own up-SQL —
+-- but migration-updown-check.mjs's loop always re-applies forward
+-- immediately after running this down-SQL, re-granting USAGE either way, so
+-- omitting the revoke here changes nothing about that harness's outcome.)
+-- Down: DO $$ DECLARE s text := current_schema(); BEGIN EXECUTE format('REVOKE SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA %I FROM keel_app', s); EXECUTE format('REVOKE USAGE, SELECT ON ALL SEQUENCES IN SCHEMA %I FROM keel_app', s); EXECUTE format('ALTER DEFAULT PRIVILEGES FOR ROLE keel_migrate IN SCHEMA %I REVOKE SELECT, INSERT, UPDATE, DELETE ON TABLES FROM keel_app', s); EXECUTE format('ALTER DEFAULT PRIVILEGES FOR ROLE keel_migrate IN SCHEMA %I REVOKE USAGE, SELECT ON SEQUENCES FROM keel_app', s); END $$;
 --
 -- Runs as keel_migrate (directUrl), which owns the schema and its tables.
 
