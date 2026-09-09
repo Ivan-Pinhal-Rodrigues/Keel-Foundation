@@ -148,3 +148,116 @@ jobs:
           SQL
       - name: up-down-up every migration
         run: node scripts/migration-updown-check.mjs
+
+  build:
+    needs: [lint, typecheck]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - uses: docker/setup-buildx-action@v3
+      - run: docker build --target runner -t keel:ci .
+      - run: docker save keel:ci -o keel-ci.tar
+      - uses: actions/upload-artifact@v4
+        with:
+          name: keel-image
+          path: keel-ci.tar
+          retention-days: 1
+
+  # `services:` here is a bare `postgres:16` container (no docker-compose
+  # project, no docker/postgres-init.sql bind mount) — unlike the `test` job
+  # above, which needs `docker compose exec` for check-migrations.mjs and gets
+  # the init script "for free" via docker-compose.yml's bind mount. This job
+  # doesn't run check-migrations.mjs, so the native `services:` container is
+  # fine, but it means the keel_app/keel_migrate roles need to be created by
+  # hand — hence "init roles" below, running the same docker/postgres-init.sql
+  # docker-compose.yml already mounts elsewhere.
+  e2e:
+    needs: build
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: keel
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d keel"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 20
+      mailpit:
+        image: axllent/mailpit:latest
+        ports: ["1025:1025", "8025:8025"]
+    env:
+      DATABASE_URL: "postgresql://keel_app:keel_app@localhost:5432/keel?schema=public"
+      MIGRATE_DATABASE_URL: "postgresql://keel_migrate:keel_migrate@localhost:5432/keel?schema=public"
+      SMTP_URL: "smtp://localhost:1025"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+      - name: init roles
+        run: PGPASSWORD=postgres psql -h localhost -U postgres -d keel -f docker/postgres-init.sql
+      - run: pnpm exec prisma migrate deploy
+      - run: pnpm seed
+      - run: pnpm build
+      - run: pnpm test:e2e
+
+  helm:
+    needs: install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - run: helm lint helm/keel
+      - run: helm lint helm/keel -f helm/keel/values-staging.yaml
+      - run: helm lint helm/keel -f helm/keel/values-prod.yaml
+      - name: no secret literals
+        run: |
+          ! helm template helm/keel -f helm/keel/values-staging.yaml | grep -iE "password|secret.*:.*['\"a-zA-Z0-9]{8,}" | grep -v "secretRef\|existingSecret"
+
+  # `kind` needs TWO of the images the `build` job could hand it: the `runner`
+  # image (`keel:ci`, already built+saved by `build`, downloaded here) for the
+  # Helm chart's `image.*` (the Deployment), and a second image built fresh
+  # from the Dockerfile's `build` stage (`keel-migrate:ci`) for `migrateImage.*`
+  # (the pre-install migrate Job) — same split Task 5's chart already encodes
+  # (`helm/keel/README.md` "migrateImage is deliberately separate from image").
+  # `runner` deliberately has neither the `prisma` CLI nor `tsx`/`dotenv-cli`,
+  # so `scripts/kind-smoke.sh`'s seed step (which needs both) runs against
+  # `keel-migrate:ci` instead. Not rebuilding `keel-migrate:ci` via
+  # `docker save`/`upload-artifact` like `build` does for `keel:ci` — it is
+  # only ever consumed inside this same job, right after this build step, so
+  # round-tripping it through an artifact would just add latency for no
+  # benefit.
+  kind:
+    needs: [build, helm]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: keel-image
+      - uses: helm/kind-action@v1
+        with:
+          cluster_name: keel-ci
+      - run: docker load -i keel-ci.tar
+      - run: kind load docker-image keel:ci --name keel-ci
+      - uses: docker/setup-buildx-action@v3
+      - run: docker build --target build -t keel-migrate:ci .
+      - run: kind load docker-image keel-migrate:ci --name keel-ci
+      - uses: azure/setup-helm@v4
+      - run: bash scripts/kind-smoke.sh
