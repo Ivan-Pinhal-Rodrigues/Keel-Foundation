@@ -12,3 +12,7 @@ pnpm-lock.yaml
 plans/
 prototypes/
 .superpowers/
+
+# Helm chart templates: Go-template syntax ({{ ... }}) isn't valid standalone
+# YAML, so Prettier's YAML parser cannot parse these files.
+helm/keel/templates/

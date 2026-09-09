@@ -1,0 +1,41 @@
+replicaCount: 1
+
+image:
+  repository: keel
+  tag: local
+  pullPolicy: IfNotPresent
+
+existingSecret: keel-secrets
+
+config:
+  appUrl: "http://localhost:3000"
+  notifyPollMs: "5000"
+  notifyBatch: "20"
+  logLevel: "info"
+
+service:
+  port: 3000
+
+ingress:
+  enabled: false
+  className: ""
+  host: ""
+  annotations: {}
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 75
+
+serviceAccount:
+  create: true
+  name: ""

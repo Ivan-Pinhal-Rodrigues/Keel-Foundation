@@ -1,0 +1,17 @@
+replicaCount: 1
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+ingress:
+  enabled: true
+  className: "nginx"
+  host: "staging.keel.example.com"
+
+config:
+  logLevel: "debug"

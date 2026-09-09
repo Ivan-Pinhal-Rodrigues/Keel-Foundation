@@ -1,0 +1,7 @@
+Keel deployed as {{ include "keel.fullname" . }}.
+
+Check rollout:
+  kubectl rollout status deployment/{{ include "keel.fullname" . }}
+
+Readiness:
+  kubectl exec deploy/{{ include "keel.fullname" . }} -- curl -sf localhost:3000/api/readyz
